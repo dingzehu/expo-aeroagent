@@ -81,7 +81,7 @@ const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
 
 export default function NotebookScreen() {
   const router = useRouter()
-  const { width: windowWidth } = useWindowDimensions()
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions()
   const isNarrow = windowWidth < 768
 
   const skeletonAnim = useRef(new Animated.Value(0)).current
@@ -204,6 +204,7 @@ export default function NotebookScreen() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [noteActionsVisible, setNoteActionsVisible] = useState(false)
   const [noteActionsTarget, setNoteActionsTarget] = useState<NotebookListItem | null>(null)
+  const [noteActionsAnchor, setNoteActionsAnchor] = useState<{ x: number; y: number } | null>(null)
   const [aiError, setAiError] = useState<string | null>(null)
   // Optional debug info: which persona was last tapped (helps beginners confirm clicks register).
   const [aiLastRun, setAiLastRun] = useState<{ persona: PersonaId; at: number } | null>(null)
@@ -563,13 +564,35 @@ export default function NotebookScreen() {
    * We store the selected note in state so the modal knows which note to act on.
    */
   const openNoteActions = useCallback((note: NotebookListItem) => {
+    // Fallback anchor (if caller didn't provide tap coordinates):
+    // show near the top-right so it still appears on screen.
+    setNoteActionsAnchor({ x: windowWidth - 16, y: 120 })
     setNoteActionsTarget(note)
     setNoteActionsVisible(true)
-  }, [])
+  }, [windowWidth])
+
+  const openNoteActionsAt = useCallback(
+    (note: NotebookListItem, e: any) => {
+      /**
+       * We capture screen coordinates so we can position a small popover
+       * right next to the tapped “3 dots” icon.
+       *
+       * RN provides these on both native + web:
+       * - pageX / pageY: absolute position in the window
+       */
+      const x = e?.nativeEvent?.pageX ?? windowWidth - 16
+      const y = e?.nativeEvent?.pageY ?? 120
+      setNoteActionsAnchor({ x, y })
+      setNoteActionsTarget(note)
+      setNoteActionsVisible(true)
+    },
+    [windowWidth]
+  )
 
   const closeNoteActions = useCallback(() => {
     setNoteActionsVisible(false)
     setNoteActionsTarget(null)
+    setNoteActionsAnchor(null)
   }, [])
 
   // ----------------------------
@@ -972,7 +995,7 @@ export default function NotebookScreen() {
                           accessibilityLabel="More actions"
                           hitSlop={10}
                           style={styles.moreButton}
-                          onPress={() => openNoteActions(n)}
+                          onPress={(e) => openNoteActionsAt(n, e)}
                           disabled={deletingId === n.id}
                         >
                           <Ionicons name="ellipsis-vertical" size={16} color="#444" />
@@ -1143,7 +1166,7 @@ export default function NotebookScreen() {
                         accessibilityLabel="More actions"
                         hitSlop={10}
                         style={styles.moreButton}
-                        onPress={() => openNoteActions(n)}
+                        onPress={(e) => openNoteActionsAt(n, e)}
                         disabled={deletingId === n.id}
                       >
                         <Ionicons name="ellipsis-vertical" size={16} color="#444" />
@@ -1240,40 +1263,59 @@ export default function NotebookScreen() {
 
       {/* Note actions sheet (replaces Alert.alert so it works on web + native) */}
       <Modal transparent visible={noteActionsVisible} animationType="fade" onRequestClose={closeNoteActions}>
-        {/*
-          IMPORTANT (same fix as the preview modal):
-          - If we wrap everything in a Pressable backdrop, presses can “bubble” and instantly close the sheet.
-          - So we use:
-              View (backdrop styling)
-                Pressable (absolute fill) -> closes ONLY when tapping outside
-                View (sheet) -> content; taps here do not close
-        */}
-        <View style={styles.backdrop}>
+        {/**
+         * Small anchored popover (instead of centered sheet):
+         * - Positioned near the tapped 3-dots icon (using pageX/pageY).
+         * - Right-aligned (popover grows left from the tap).
+         * - Includes a small “tip” triangle pointing to the tap target.
+         */}
+        <View style={StyleSheet.absoluteFillObject}>
           <Pressable style={StyleSheet.absoluteFillObject} onPress={closeNoteActions} />
-          <View style={styles.actionsSheet}>
-            <Text style={styles.actionsTitle}>Note actions</Text>
 
-            <Text style={styles.actionsSubtitle} numberOfLines={1}>
-              {(noteActionsTarget?.title ?? '').trim() ? noteActionsTarget?.title : '(Untitled)'}
-            </Text>
+          {(() => {
+            const MENU_W = 220
+            const anchorX = noteActionsAnchor?.x ?? windowWidth - 16
+            const anchorY = noteActionsAnchor?.y ?? 120
 
-            <Pressable
-              style={[styles.actionsDangerButton, deletingId && styles.disabled]}
-              disabled={!noteActionsTarget || !!deletingId}
-              onPress={async () => {
-                if (!noteActionsTarget) return
-                const id = noteActionsTarget.id
-                closeNoteActions()
-                await deleteNotebookById(id)
-              }}
-            >
-              <Text style={styles.actionsDangerText}>{deletingId ? 'Deleting…' : 'Delete note'}</Text>
-            </Pressable>
+            // Position: align the popover’s right edge near the tap.
+            const left = Math.min(Math.max(anchorX - MENU_W + 10, 8), windowWidth - MENU_W - 8)
+            const top = Math.min(Math.max(anchorY + 10, 8), windowHeight - 160)
 
-            <Pressable style={styles.drawerButton} onPress={closeNoteActions}>
-              <Text style={styles.drawerButtonText}>Cancel</Text>
-            </Pressable>
-          </View>
+            // Tip: place it near the tap X, clamped inside the menu width.
+            const tipLeft = Math.min(Math.max(anchorX - left - 10, 14), MENU_W - 26)
+
+            return (
+              <View style={[styles.actionsPopover, { width: MENU_W, left, top }]}>
+                {/* Tip border (slightly darker) */}
+                <View style={[styles.actionsTipBorder, { left: tipLeft }]} />
+                {/* Tip fill */}
+                <View style={[styles.actionsTip, { left: tipLeft }]} />
+
+                <Text style={styles.actionsCompactTitle} numberOfLines={1}>
+                  {(noteActionsTarget?.title ?? '').trim() ? noteActionsTarget?.title : '(Untitled)'}
+                </Text>
+
+                <Pressable
+                  style={[styles.actionsMenuItemDanger, deletingId && styles.disabled]}
+                  disabled={!noteActionsTarget || !!deletingId}
+                  onPress={async () => {
+                    if (!noteActionsTarget) return
+                    const id = noteActionsTarget.id
+                    closeNoteActions()
+                    await deleteNotebookById(id)
+                  }}
+                >
+                  <MaterialIcons name="delete-outline" size={18} color="#991b1b" />
+                  <Text style={styles.actionsMenuItemDangerText}>{deletingId ? 'Deleting…' : 'Delete note'}</Text>
+                </Pressable>
+
+                <Pressable style={styles.actionsMenuItem} onPress={closeNoteActions}>
+                  <MaterialIcons name="close" size={18} color="#374151" />
+                  <Text style={styles.actionsMenuItemText}>Cancel</Text>
+                </Pressable>
+              </View>
+            )
+          })()}
         </View>
       </Modal>
     </View>
@@ -1681,6 +1723,81 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 14,
+  },
+  // Anchored “3-dots” popover (smaller, right-aligned, with a tip).
+  actionsPopover: {
+    position: 'absolute',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    // iOS shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    // Android shadow
+    elevation: 5,
+  },
+  actionsTipBorder: {
+    position: 'absolute',
+    top: -9,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderBottomWidth: 9,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#e5e7eb',
+  },
+  actionsTip: {
+    position: 'absolute',
+    top: -8,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderBottomWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#fff',
+  },
+  actionsCompactTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  actionsMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    marginTop: 8,
+  },
+  actionsMenuItemText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  actionsMenuItemDanger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#FEF2F2',
+  },
+  actionsMenuItemDangerText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#991b1b',
   },
   actionsTitle: {
     fontSize: 16,
