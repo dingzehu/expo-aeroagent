@@ -1,0 +1,19 @@
+# Supabase local/project config
+#
+# This file controls Supabase CLI behavior for your project.
+# One important setting is whether an Edge Function requires a valid JWT *before* the function runs.
+#
+# Why we set this for `note-style`:
+# - Right now you're getting: HTTP 401 with empty details.
+# - That often means Supabase blocked the request *before* it reached your function
+#   because JWT verification failed at the platform layer.
+# - We already verify the user inside the function using `supabase.auth.getUser()`,
+#   so we can safely disable the platform-level verify_jwt for better debugging.
+#
+# After adding this file, redeploy the function:
+#   npx supabase functions deploy note-style
+#
+
+[functions.note-style]
+verify_jwt = false
+
