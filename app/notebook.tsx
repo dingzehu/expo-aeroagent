@@ -1,7 +1,16 @@
 import { Ionicons, MaterialIcons } from '@expo/vector-icons'
 import type { Session } from '@supabase/supabase-js'
+import { BlurView } from 'expo-blur'
 import * as Clipboard from 'expo-clipboard'
+import * as Haptics from 'expo-haptics'
+import { LinearGradient } from 'expo-linear-gradient'
 import { Stack, useRouter } from 'expo-router'
+// NOTE:
+// Importing from `lucide-react-native` root can force Metro to resolve *thousands* of icons.
+// On some setups this can fail with missing-module errors (e.g. `chevron-last.js`).
+// Import the single icon we need directly to keep bundling stable and fast.
+// @ts-expect-error - lucide doesn't publish per-icon TS path types; runtime file exists.
+import Sparkles from 'lucide-react-native/dist/esm/icons/sparkles.js'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -69,6 +78,50 @@ const PERSONA_HELP: Record<PersonaId, string> = {
 }
 
 /**
+ * Persona pill (Magic Bar) — “Pro Studio” treatment.
+ *
+ * Glassmorphism approach:
+ * - We use `overflow: 'hidden'` so the Blur/Gradient background is clipped to the pill shape.
+ * - On web, Blur may be limited depending on the browser; we fall back to a translucent background.
+ */
+function PersonaPill(props: {
+  label: string
+  help: string
+  active: boolean
+  disabled?: boolean
+  onPress: () => void
+}) {
+  const { label, help, active, disabled, onPress } = props
+
+  return (
+    <Pressable
+      {...(Platform.OS === 'web' ? ({ title: `${label}: ${help}` } as any) : null)}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      disabled={disabled}
+      style={[styles.pillBase, active && styles.pillActiveGlass, disabled && styles.disabled]}
+    >
+      {/* Background layer */}
+      {active ? (
+        <LinearGradient colors={['#818CF8', '#6366F1']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+      ) : Platform.OS === 'web' ? (
+        <View style={[StyleSheet.absoluteFill, styles.pillGlassFallback]} />
+      ) : (
+        <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />
+      )}
+
+      {/* Foreground */}
+      <View style={styles.pillInner}>
+        <Text style={[styles.pillText, active && styles.pillTextActive]} numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
+    </Pressable>
+  )
+}
+
+/**
  * Supabase Functions URL:
  * - Functions are served at: <SUPABASE_URL>/functions/v1/<function-name>
  *
@@ -85,6 +138,7 @@ export default function NotebookScreen() {
   const isNarrow = windowWidth < 768
 
   const skeletonAnim = useRef(new Animated.Value(0)).current
+  const autosavePulseAnim = useRef(new Animated.Value(0)).current
 
   // ----------------------------
   // Auth session (who is logged in?)
@@ -799,6 +853,51 @@ export default function NotebookScreen() {
 
   const skeletonTranslateX = skeletonAnim.interpolate({ inputRange: [0, 1], outputRange: [-140, 260] })
 
+  // Autosave badge animation (Raw Notes bottom-right):
+  // - When saved: a subtle pulsing green dot
+  // - We keep the animation isolated so it doesn't impact typing performance.
+  useEffect(() => {
+    if (autosaveState !== 'saved') {
+      autosavePulseAnim.stopAnimation()
+      autosavePulseAnim.setValue(0)
+      return
+    }
+
+    autosavePulseAnim.setValue(0)
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(autosavePulseAnim, { toValue: 1, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(autosavePulseAnim, { toValue: 0, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      ])
+    )
+    loop.start()
+    return () => loop.stop()
+  }, [autosavePulseAnim, autosaveState])
+
+  const autosavePulseScale = autosavePulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] })
+  const autosavePulseOpacity = autosavePulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 0.35] })
+
+  // Canvas card padding (Pro Studio):
+  // - web/desktop: roomier
+  // - mobile: a bit tighter
+  const cardPadding = isNarrow ? 20 : 32
+
+  /**
+   * Word count + reading time:
+   * - Simple heuristic: 200 words/minute.
+   * - We count based on the text shown in the preview (formattedPreview).
+   */
+  const wordCount = useMemo(() => {
+    const text = (formattedPreview ?? '').trim()
+    if (!text) return 0
+    return text.split(/\s+/).filter(Boolean).length
+  }, [formattedPreview])
+
+  const readingTimeMinutes = useMemo(() => {
+    if (!wordCount) return 0
+    return Math.max(1, Math.ceil(wordCount / 200))
+  }, [wordCount])
+
   // ----------------------------
   // Copy Result (to clipboard)
   // ----------------------------
@@ -848,8 +947,6 @@ export default function NotebookScreen() {
   const headerRight = useMemo(() => {
     const HeaderRight = () => (
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        {renderAutosaveIndicator()}
-
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={isNarrow ? 'Saved notes' : 'Toggle sidebar'}
@@ -874,7 +971,7 @@ export default function NotebookScreen() {
     )
     HeaderRight.displayName = 'HeaderRight'
     return HeaderRight
-  }, [closeDrawer, drawerVisible, isNarrow, openDrawer, renderAutosaveIndicator, toggleSavedListOrSidebar])
+  }, [closeDrawer, drawerVisible, isNarrow, openDrawer, toggleSavedListOrSidebar])
 
   const headerTitle = useMemo(() => {
     const HeaderTitle = () => (
@@ -927,15 +1024,32 @@ export default function NotebookScreen() {
             {noteId ? <Text style={styles.muted}>Loaded note: {noteId.slice(0, 8)}…</Text> : null}
 
             <Text style={[styles.label, { marginTop: 12 }]}>Raw Notes</Text>
-            <TextInput
-              style={styles.rawInput}
-              placeholder="Type your messy thoughts here…"
-              value={rawContent}
-              onChangeText={setRawContent}
-              multiline
-              //autoFocus
-              textAlignVertical="top"
-            />
+            <View style={styles.rawInputWrap}>
+              <TextInput
+                style={styles.rawInput}
+                placeholder="Type your messy thoughts here…"
+                value={rawContent}
+                onChangeText={setRawContent}
+                multiline
+                // Mobile UX: never auto-focus; avoids keyboard popping on page enter.
+                autoFocus={false}
+                textAlignVertical="top"
+              />
+
+              {/* Autosave badge: lives inside the input (bottom-right), never steals taps. */}
+              <View pointerEvents="none" style={styles.rawAutosaveBadge}>
+                {autosaveState === 'syncing' ? (
+                  <ActivityIndicator size="small" color="#9CA3AF" />
+                ) : autosaveState === 'saved' ? (
+                  <Animated.View
+                    style={[
+                      styles.rawAutosaveDot,
+                      { transform: [{ scale: autosavePulseScale }], opacity: autosavePulseOpacity },
+                    ]}
+                  />
+                ) : null}
+              </View>
+            </View>
           </View>
 
           {/* RIGHT: Saved notes list */}
@@ -1015,18 +1129,30 @@ export default function NotebookScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.magicBarContent}>
           {PERSONAS.map((p) => {
             const active = selectedStyle === p.id
+            const label = styling && active ? 'Styling…' : p.label
             return (
-              <Pressable
+              <PersonaPill
                 key={p.id}
-                {...(Platform.OS === 'web' ? ({ title: `${p.label}: ${PERSONA_HELP[p.id]}` } as any) : null)}
-                style={[styles.pill, active && styles.pillActive, styling && styles.disabled]}
-                onPress={() => runAiStyling(p.id)}
+                label={label}
+                help={PERSONA_HELP[p.id]}
+                active={active}
                 disabled={styling}
-              >
-                <Text style={[styles.pillText, active && styles.pillTextActive]}>
-                  {styling && active ? 'Styling…' : p.label}
-                </Text>
-              </Pressable>
+                onPress={async () => {
+                  /**
+                   * “Physical” feedback:
+                   * - Only on native (web should not vibrate or throw).
+                   * - Wrapped in try/catch so unsupported devices never break the tap.
+                   */
+                  if (Platform.OS !== 'web') {
+                    try {
+                      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                    } catch {
+                      // ignore
+                    }
+                  }
+                  runAiStyling(p.id)
+                }}
+              />
             )
           })}
         </ScrollView>
@@ -1039,7 +1165,7 @@ export default function NotebookScreen() {
         {aiError ? <Text style={styles.aiErrorText}>{aiError}</Text> : null}
         {aiLastRun ? <Text style={styles.aiDebugText}>Last persona: {aiLastRun.persona}</Text> : null}
 
-        <View style={styles.card}>
+        <View style={[styles.card, { padding: cardPadding }]}>
           <ScrollView style={styles.cardBody} keyboardShouldPersistTaps="handled">
             {styling ? (
               <View style={styles.skeletonWrap}>
@@ -1049,34 +1175,53 @@ export default function NotebookScreen() {
                 <View style={styles.skeletonBarWide} />
                 <Animated.View style={[styles.skeletonShimmer, { transform: [{ translateX: skeletonTranslateX }] }]} />
               </View>
+            ) : selectedStyle == null ? (
+              /**
+               * Pro Studio empty state:
+               * - We show this until a persona is selected, even if the user typed raw notes.
+               * - This keeps the preview area focused on “choose a transformation”.
+               */
+              <View style={styles.previewEmpty}>
+                <View style={styles.previewEmptyIcon}>
+                  <Sparkles size={28} color="#6366F1" />
+                </View>
+                <Text style={styles.previewEmptyTitle}>Ready to transform</Text>
+                <Text style={styles.previewEmptySubtitle}>Select a persona above to transform your thoughts.</Text>
+              </View>
             ) : (
               <MarkdownView markdown={formattedPreview || ''} />
             )}
           </ScrollView>
 
-          <View style={styles.cardActionsRow}>
-            <Pressable
-              style={[
-                styles.copyButton,
-                copiedFlash && styles.copyButtonCopied,
-                (!formattedPreview.trim() || styling) && styles.disabled,
-              ]}
-              onPress={copyResult}
-              disabled={!formattedPreview.trim() || styling}
-            >
-            <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-              <Text style={styles.copyButtonText}>{copiedFlash ? 'Copied! ✅' : 'Copy Result'}</Text>
-            </Pressable>
+          <View style={styles.cardFooterRow}>
+            <Text style={styles.cardMetaText}>
+              {wordCount ? `${wordCount} words • ${readingTimeMinutes} min read` : '—'}
+            </Text>
 
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Share (coming soon)"
-              disabled
-              style={[styles.shareButton, styles.disabled]}
-              onPress={() => {}}
-            >
-              <MaterialIcons name="ios-share" size={18} color="#111827" />
-            </Pressable>
+            <View style={styles.cardActionsRow}>
+              <Pressable
+                style={[
+                  styles.copyButton,
+                  copiedFlash && styles.copyButtonCopied,
+                  (!formattedPreview.trim() || styling) && styles.disabled,
+                ]}
+                onPress={copyResult}
+                disabled={!formattedPreview.trim() || styling}
+              >
+                <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+                <Text style={styles.copyButtonText}>{copiedFlash ? 'Copied! ✅' : 'Copy Result'}</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Share (coming soon)"
+                disabled
+                style={[styles.shareButton, styles.disabled]}
+                onPress={() => {}}
+              >
+                <MaterialIcons name="ios-share" size={18} color="#111827" />
+              </Pressable>
+            </View>
           </View>
         </View>
       </View>
@@ -1419,6 +1564,25 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: '#fff',
   },
+  rawInputWrap: {
+    flex: 1,
+    position: 'relative',
+  },
+  rawAutosaveBadge: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rawAutosaveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#10B981',
+  },
   ghostButton: {
     marginTop: 12,
     backgroundColor: 'transparent',
@@ -1518,24 +1682,33 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingRight: 8,
   },
-  pill: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  // Magic Bar — glassmorphism pills
+  pillBase: {
     borderRadius: 50,
-    backgroundColor: '#F3F4F6',
+    overflow: 'hidden', // important for Blur/Gradient clipping
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
-  pillActive: {
-    backgroundColor: '#818CF8',
+  pillGlassFallback: {
+    backgroundColor: 'rgba(255,255,255,0.55)',
+  },
+  pillInner: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pillActiveGlass: {
     shadowColor: '#818CF8',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 8,
   },
   pillText: {
     fontSize: 13,
-    fontWeight: '800',
-    color: '#374151',
+    fontWeight: '900',
+    color: '#111827',
   },
   pillTextActive: {
     color: '#fff',
@@ -1553,7 +1726,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 24,
+    // Padding is set dynamically in render (desktop vs mobile).
     // Shadow (iOS)
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -1565,6 +1738,34 @@ const styles = StyleSheet.create({
   cardBody: {
     flex: 1,
     marginBottom: 12,
+  },
+  previewEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+  },
+  previewEmptyIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 16,
+    backgroundColor: 'rgba(99, 102, 241, 0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  previewEmptyTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#111827',
+    marginBottom: 6,
+  },
+  previewEmptySubtitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6b7280',
+    textAlign: 'center',
+    maxWidth: 320,
   },
   skeletonWrap: {
     position: 'relative',
@@ -1611,7 +1812,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
   },
+  cardFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  cardMetaText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#6b7280',
+    flexShrink: 1,
+  },
   cardActionsRow: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
