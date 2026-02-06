@@ -387,7 +387,7 @@ export default function NotebookScreen() {
               selected_style: selectedStyle,
               updated_at: nowIso,
             }
-            const { data, error } = await supabase.from('notebooks').insert(payload).select('id').single()
+            const { data, error } = await supabase.from('notes').insert(payload).select('id').single()
             if (error) throw error
             setNoteId(data.id)
             bumpNotebookListItem({ id: data.id, title: title || null, updated_at: nowIso })
@@ -399,7 +399,7 @@ export default function NotebookScreen() {
               body: rawContent,
               updated_at: nowIso,
             }
-            const { data, error } = await supabase.from('notebooks').insert(payload).select('id').single()
+            const { data, error } = await supabase.from('notes').insert(payload).select('id').single()
             if (error) throw error
             setNoteId(data.id)
             bumpNotebookListItem({ id: data.id, title: title || null, updated_at: nowIso })
@@ -415,13 +415,13 @@ export default function NotebookScreen() {
               selected_style: selectedStyle,
               updated_at: nowIso,
             }
-            const { error } = await supabase.from('notebooks').update(payload).eq('id', noteId).eq('user_id', userId)
+            const { error } = await supabase.from('notes').update(payload).eq('id', noteId).eq('user_id', userId)
             if (error) throw error
             bumpNotebookListItem({ id: noteId, title: title || null, updated_at: nowIso })
           } catch {
             // Legacy schema fallback
             const payload = { title, body: rawContent, updated_at: nowIso }
-            const { error } = await supabase.from('notebooks').update(payload).eq('id', noteId).eq('user_id', userId)
+            const { error } = await supabase.from('notes').update(payload).eq('id', noteId).eq('user_id', userId)
             if (error) throw error
             bumpNotebookListItem({ id: noteId, title: title || null, updated_at: nowIso })
           }
@@ -505,7 +505,7 @@ export default function NotebookScreen() {
     try {
       /**
        * IMPORTANT COMPATIBILITY NOTE:
-       * Your Supabase `notebooks` table might not have the new columns yet
+       * Your Supabase `notes` table might not have the new columns yet
        * (raw_content, formatted_content, selected_style).
        *
        * To make the “Saved notes” list work immediately, we only select columns
@@ -514,7 +514,7 @@ export default function NotebookScreen() {
        * Later (in the schema todo), we’ll add the new columns and can expand this select.
        */
       const { data, error } = await supabase
-        .from('notebooks')
+        .from('notes')
         .select('id,title,updated_at')
         .eq('user_id', userId)
         .order('updated_at', { ascending: false })
@@ -547,7 +547,7 @@ export default function NotebookScreen() {
          */
         try {
           const { data, error } = await supabase
-            .from('notebooks')
+            .from('notes')
             .select('id,title,raw_content,formatted_content,selected_style,updated_at')
             .eq('user_id', userId)
             .eq('id', id)
@@ -569,7 +569,7 @@ export default function NotebookScreen() {
         } catch {
           // Fall back to legacy columns
           const { data, error } = await supabase
-            .from('notebooks')
+            .from('notes')
             .select('id,title,body,updated_at')
             .eq('user_id', userId)
             .eq('id', id)
@@ -612,7 +612,7 @@ export default function NotebookScreen() {
 
       setDeletingId(id)
       try {
-        const { error } = await supabase.from('notebooks').delete().eq('id', id).eq('user_id', userId)
+        const { error } = await supabase.from('notes').delete().eq('id', id).eq('user_id', userId)
         if (error) throw error
 
         // If user deleted the currently loaded note, clear the editor state.
