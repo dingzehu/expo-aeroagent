@@ -242,13 +242,11 @@ export default function NotebookScreen() {
   const [selectedStyle, setSelectedStyle] = useState<PersonaId | null>(null) // selected_style
 
   /**
-   * formattedPreview is what we show in the bottom Canvas *right now*.
-   *
-   * Your requested behavior:
-   * - While typing: instant local “Markdown pass-through” (no AI).
-   * - When user taps a persona: call AI and replace preview with AI markdown.
+   * Hybrid Preview:
+   * - Draft mode: live Markdown preview of `rawContent`
+   * - AI mode: show `formattedContent` returned by the Edge Function
    */
-  const [formattedPreview, setFormattedPreview] = useState('')
+  const [isPreviewingAI, setIsPreviewingAI] = useState(false)
 
   // Loading states (for UX)
   const [loadingList, setLoadingList] = useState(false)
@@ -291,20 +289,41 @@ export default function NotebookScreen() {
   const autosavePendingRef = useRef(false)
   const lastSavedSignatureRef = useRef<string>('') // signature of title/raw_content we last persisted
 
-  // ----------------------------
-  // Instant “pass-through” preview
-  // ----------------------------
+  /**
+   * Hybrid Preview source:
+   * - Draft preview is always the raw markdown.
+   * - AI preview is the formatted markdown returned by the Edge Function.
+   */
+  const previewMarkdown = useMemo(() => {
+    return isPreviewingAI ? formattedContent : rawContent
+  }, [formattedContent, isPreviewingAI, rawContent])
+
+  /**
+   * Important UX rule:
+   * If the user edits the raw draft while previewing AI output, automatically switch back
+   * to Draft mode so the preview never lies (AI output may now be stale).
+   */
+  const lastRawContentRef = useRef(rawContent)
   useEffect(() => {
     /**
-     * Pass-through rule:
-     * - Whenever rawContent changes (user typing), we immediately show rawContent as markdown.
+     * IMPORTANT:
+     * We only want to auto-exit AI mode when the RAW TEXT actually changes.
      *
-     * Why this is “instant”:
-     * - It does not call the network.
-     * - It just updates local state and re-renders.
+     * Bug we avoid here:
+     * - If we depended on `isPreviewingAI` directly, switching AI mode ON would also trigger the effect,
+     *   immediately flipping it back OFF.
+     *
+     * Fix:
+     * - Track the previous rawContent in a ref and compare.
      */
-    setFormattedPreview(rawContent)
-  }, [rawContent])
+    const prevRaw = lastRawContentRef.current
+    const didRawChange = rawContent !== prevRaw
+    lastRawContentRef.current = rawContent
+
+    if (isPreviewingAI && didRawChange) {
+      setIsPreviewingAI(false)
+    }
+  }, [isPreviewingAI, rawContent])
 
   const filteredNotebookList = useMemo(() => {
     const q = savedSearch.trim().toLowerCase()
@@ -363,7 +382,8 @@ export default function NotebookScreen() {
               user_id: userId,
               title,
               raw_content: rawContent,
-              formatted_content: formattedContent || formattedPreview,
+              // Only store AI output here (drafts don't need formatted_content).
+              formatted_content: formattedContent || null,
               selected_style: selectedStyle,
               updated_at: nowIso,
             }
@@ -390,7 +410,8 @@ export default function NotebookScreen() {
             const payload = {
               title,
               raw_content: rawContent,
-              formatted_content: formattedContent || formattedPreview,
+              // Only store AI output here (drafts don't need formatted_content).
+              formatted_content: formattedContent || null,
               selected_style: selectedStyle,
               updated_at: nowIso,
             }
@@ -425,7 +446,6 @@ export default function NotebookScreen() {
     [
       bumpNotebookListItem,
       formattedContent,
-      formattedPreview,
       makeAutosaveSignature,
       noteId,
       rawContent,
@@ -540,7 +560,8 @@ export default function NotebookScreen() {
           setRawContent(data.raw_content ?? '')
           setFormattedContent(data.formatted_content ?? '')
           setSelectedStyle((data.selected_style ?? null) as PersonaId | null)
-          setFormattedPreview((data.formatted_content ?? data.raw_content ?? '') as string)
+          // Hybrid Preview default: always open notes in Draft mode.
+          setIsPreviewingAI(false)
           lastSavedSignatureRef.current = makeAutosaveSignature(data.title ?? '', data.raw_content ?? '')
           setAutosaveError(null)
           setAutosaveState('saved')
@@ -561,7 +582,8 @@ export default function NotebookScreen() {
           setRawContent(data.body ?? '')
           setFormattedContent('')
           setSelectedStyle(null)
-          setFormattedPreview((data.body ?? '') as string)
+          // Hybrid Preview default: always open notes in Draft mode.
+          setIsPreviewingAI(false)
           lastSavedSignatureRef.current = makeAutosaveSignature(data.title ?? '', data.body ?? '')
           setAutosaveError(null)
           setAutosaveState('saved')
@@ -600,7 +622,7 @@ export default function NotebookScreen() {
           setRawContent('')
           setFormattedContent('')
           setSelectedStyle(null)
-          setFormattedPreview('')
+          setIsPreviewingAI(false)
         }
 
         await loadNotebookList()
@@ -730,7 +752,7 @@ export default function NotebookScreen() {
         if (!markdown) throw new Error('Edge function returned empty formatted_content')
 
         setFormattedContent(markdown)
-        setFormattedPreview(markdown)
+        // In Hybrid Preview, AI output lives in `formattedContent` and is shown only in AI Mode.
         // Persist the styled result (non-debounced; AI runs are infrequent).
         void saveNoteDraft({ reason: 'ai' })
       } catch (e: any) {
@@ -756,8 +778,8 @@ export default function NotebookScreen() {
 
         // Also log the full object for debugging in the console.
         console.error('[AI styling error]', e)
-        // Keep the preview usable (fallback to pass-through).
-        setFormattedPreview(rawContent)
+        // Hybrid Preview fallback: return to Draft mode (raw markdown).
+        setIsPreviewingAI(false)
       } finally {
         setStyling(false)
       }
@@ -771,7 +793,7 @@ export default function NotebookScreen() {
     setRawContent('')
     setFormattedContent('')
     setSelectedStyle(null)
-    setFormattedPreview('')
+    setIsPreviewingAI(false)
     setAiError(null)
     setAiLastRun(null)
     setAutosaveError(null)
@@ -885,13 +907,13 @@ export default function NotebookScreen() {
   /**
    * Word count + reading time:
    * - Simple heuristic: 200 words/minute.
-   * - We count based on the text shown in the preview (formattedPreview).
+   * - We count based on what the user is currently previewing (Draft or AI).
    */
   const wordCount = useMemo(() => {
-    const text = (formattedPreview ?? '').trim()
+    const text = (previewMarkdown ?? '').trim()
     if (!text) return 0
     return text.split(/\s+/).filter(Boolean).length
-  }, [formattedPreview])
+  }, [previewMarkdown])
 
   const readingTimeMinutes = useMemo(() => {
     if (!wordCount) return 0
@@ -902,7 +924,8 @@ export default function NotebookScreen() {
   // Copy Result (to clipboard)
   // ----------------------------
   const copyResult = useCallback(async () => {
-    const textToCopy = formattedPreview || ''
+    // Copy whatever is currently shown in the preview (Draft or AI).
+    const textToCopy = previewMarkdown || ''
     if (!textToCopy.trim()) {
       Alert.alert('Nothing to copy', 'Generate some formatted content first.')
       return
@@ -911,7 +934,7 @@ export default function NotebookScreen() {
     setCopiedFlash(true)
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
     copiedTimerRef.current = setTimeout(() => setCopiedFlash(false), 1500)
-  }, [formattedPreview])
+  }, [previewMarkdown])
 
   useEffect(() => {
     return () => {
@@ -1007,7 +1030,23 @@ export default function NotebookScreen() {
         <View style={[styles.workbenchRow, isNarrow && { flexDirection: 'column' }]}>
           {/* LEFT: Title + Raw Input */}
           <View style={[styles.workbenchLeft, isNarrow && { flex: 1 }]}>
-            <Text style={styles.label}>Note Title</Text>
+            <View style={styles.noteTitleRow}>
+              <Text style={styles.label}>Note Title</Text>
+
+              {/* Autosave indicator (always visible near the title) */}
+              <View pointerEvents="none" style={styles.noteTitleAutosave}>
+                {autosaveState === 'syncing' ? (
+                  <ActivityIndicator size="small" color="#9CA3AF" />
+                ) : autosaveState === 'saved' ? (
+                  <Animated.View
+                    style={[
+                      styles.noteTitleAutosaveDot,
+                      { transform: [{ scale: autosavePulseScale }], opacity: autosavePulseOpacity },
+                    ]}
+                  />
+                ) : null}
+              </View>
+            </View>
             <TextInput
               style={styles.titleInput}
               placeholder="Type a title…"
@@ -1035,20 +1074,6 @@ export default function NotebookScreen() {
                 autoFocus={false}
                 textAlignVertical="top"
               />
-
-              {/* Autosave badge: lives inside the input (bottom-right), never steals taps. */}
-              <View pointerEvents="none" style={styles.rawAutosaveBadge}>
-                {autosaveState === 'syncing' ? (
-                  <ActivityIndicator size="small" color="#9CA3AF" />
-                ) : autosaveState === 'saved' ? (
-                  <Animated.View
-                    style={[
-                      styles.rawAutosaveDot,
-                      { transform: [{ scale: autosavePulseScale }], opacity: autosavePulseOpacity },
-                    ]}
-                  />
-                ) : null}
-              </View>
             </View>
           </View>
 
@@ -1150,6 +1175,14 @@ export default function NotebookScreen() {
                       // ignore
                     }
                   }
+                  // Hybrid Preview trigger:
+                  // - If there's content, switch into AI mode immediately (user intent is “show AI output”).
+                  // - If there's nothing to style, keep Draft mode so the preview stays meaningful.
+                  if (!rawContent.trim()) {
+                    setIsPreviewingAI(false)
+                  } else {
+                    setIsPreviewingAI(true)
+                  }
                   runAiStyling(p.id)
                 }}
               />
@@ -1165,7 +1198,26 @@ export default function NotebookScreen() {
         {aiError ? <Text style={styles.aiErrorText}>{aiError}</Text> : null}
         {aiLastRun ? <Text style={styles.aiDebugText}>Last persona: {aiLastRun.persona}</Text> : null}
 
-        <View style={[styles.card, { padding: cardPadding }]}>
+        <View style={[styles.card, { padding: cardPadding }, isPreviewingAI && styles.cardAiMode]}>
+          {/* AI mode badge + reset (Hybrid Preview) */}
+          {isPreviewingAI ? (
+            <View style={styles.cardAiTopRow}>
+              <View style={styles.aiBadge}>
+                <Text style={styles.aiBadgeText}>✨ AI Generated</Text>
+              </View>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back to draft"
+                onPress={() => setIsPreviewingAI(false)}
+                style={styles.backToDraftButton}
+              >
+                <MaterialIcons name="undo" size={16} color="#374151" />
+                <Text style={styles.backToDraftText}>Back to Draft</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           <ScrollView style={styles.cardBody} keyboardShouldPersistTaps="handled">
             {styling ? (
               <View style={styles.skeletonWrap}>
@@ -1175,11 +1227,12 @@ export default function NotebookScreen() {
                 <View style={styles.skeletonBarWide} />
                 <Animated.View style={[styles.skeletonShimmer, { transform: [{ translateX: skeletonTranslateX }] }]} />
               </View>
-            ) : selectedStyle == null ? (
+            ) : !previewMarkdown.trim() ? (
               /**
-               * Pro Studio empty state:
-               * - We show this until a persona is selected, even if the user typed raw notes.
-               * - This keeps the preview area focused on “choose a transformation”.
+               * Hybrid Preview empty state:
+               * - We show this only when there's nothing to render in the current view.
+               * - In Draft mode: raw draft is empty.
+               * - In AI mode: AI output is empty (should be rare).
                */
               <View style={styles.previewEmpty}>
                 <View style={styles.previewEmptyIcon}>
@@ -1189,7 +1242,7 @@ export default function NotebookScreen() {
                 <Text style={styles.previewEmptySubtitle}>Select a persona above to transform your thoughts.</Text>
               </View>
             ) : (
-              <MarkdownView markdown={formattedPreview || ''} />
+              <MarkdownView markdown={previewMarkdown} />
             )}
           </ScrollView>
 
@@ -1203,10 +1256,10 @@ export default function NotebookScreen() {
                 style={[
                   styles.copyButton,
                   copiedFlash && styles.copyButtonCopied,
-                  (!formattedPreview.trim() || styling) && styles.disabled,
+                  (!previewMarkdown.trim() || styling) && styles.disabled,
                 ]}
                 onPress={copyResult}
-                disabled={!formattedPreview.trim() || styling}
+                disabled={!previewMarkdown.trim() || styling}
               >
                 <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
                 <Text style={styles.copyButtonText}>{copiedFlash ? 'Copied! ✅' : 'Copy Result'}</Text>
@@ -1555,6 +1608,24 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: '#fff',
   },
+  noteTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  noteTitleAutosave: {
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6, // match label baseline spacing
+  },
+  noteTitleAutosaveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#10B981',
+  },
   rawInput: {
     flex: 1,
     borderWidth: 1,
@@ -1567,21 +1638,6 @@ const styles = StyleSheet.create({
   rawInputWrap: {
     flex: 1,
     position: 'relative',
-  },
-  rawAutosaveBadge: {
-    position: 'absolute',
-    right: 10,
-    bottom: 10,
-    width: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rawAutosaveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: '#10B981',
   },
   ghostButton: {
     marginTop: 12,
@@ -1734,6 +1790,45 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     // Shadow (Android)
     elevation: 5,
+  },
+  // Hybrid Preview: subtle AI mode border so the user knows they're not viewing the raw draft.
+  cardAiMode: {
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.35)',
+  },
+  cardAiTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  aiBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(99, 102, 241, 0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.25)',
+  },
+  aiBadgeText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#4f46e5',
+  },
+  backToDraftButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#F3F4F6',
+  },
+  backToDraftText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#374151',
   },
   cardBody: {
     flex: 1,

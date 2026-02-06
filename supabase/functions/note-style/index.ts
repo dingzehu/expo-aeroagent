@@ -72,6 +72,13 @@ function json(body: unknown, status = 200) {
   })
 }
 
+/**
+ * Beginner helper: async sleep (for retry backoff).
+ */
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 Deno.serve(async (req) => {
   // 1) CORS preflight (browser sends OPTIONS first)
   if (req.method === 'OPTIONS') {
@@ -87,10 +94,10 @@ Deno.serve(async (req) => {
     // 3) Read secrets from Supabase environment
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
 
-    if (!openaiApiKey) {
-      return json({ error: 'Missing OPENAI_API_KEY secret in Supabase' }, 500)
+    if (!geminiApiKey) {
+      return json({ error: 'Missing GEMINI_API_KEY secret in Supabase' }, 500)
     }
 
     // 4) Verify the user is authenticated (very important)
@@ -134,50 +141,102 @@ Deno.serve(async (req) => {
     const MAX_CHARS = 12000
     const clippedRaw = raw.length > MAX_CHARS ? raw.slice(0, MAX_CHARS) : raw
 
-    // 6) Call OpenAI (Chat Completions)
+    // 6) Call Gemini (generateContent)
     //
     // Beginner note:
     // - We send the “system prompt” + the user content.
     // - The model returns formatted Markdown.
-    const openaiResp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`
+    const geminiBody = {
+      systemInstruction: {
+        role: 'system',
+        parts: [{ text: PERSONA_SYSTEM_PROMPTS[persona] }],
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: [
+                title ? `Title: ${title}` : '',
+                'Raw notes:',
+                clippedRaw,
+                '',
+                'Return Markdown only.',
+              ]
+                .filter(Boolean)
+                .join('\n'),
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        // Keep output stable + cost controlled.
         temperature: 0.4,
-        messages: [
-          { role: 'system', content: PERSONA_SYSTEM_PROMPTS[persona] },
+        maxOutputTokens: 1024,
+      },
+    }
+
+    /**
+     * IMPORTANT (beginner-friendly reliability):
+     * Gemini can return HTTP 429 (RESOURCE_EXHAUSTED) when you hit a quota/rate limit.
+     *
+     * We do TWO things:
+     * 1) Retry a couple times with small exponential backoff
+     * 2) If it still fails, return HTTP 429 to the app (instead of hiding it as 502)
+     */
+    const MAX_RETRIES = 2 // total attempts = 3
+    let geminiResp: Response | null = null
+    let lastText = ''
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      geminiResp = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(geminiBody),
+      })
+
+      if (geminiResp.ok) break
+
+      lastText = await geminiResp.text()
+
+      // Retry 429/503 because they are usually temporary.
+      if ((geminiResp.status === 429 || geminiResp.status === 503) && attempt < MAX_RETRIES) {
+        // If Google provides a Retry-After header, respect it; otherwise exponential backoff.
+        const retryAfter = Number(geminiResp.headers.get('retry-after') ?? '')
+        const backoffMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** attempt
+        await sleep(Math.min(backoffMs, 4000))
+        continue
+      }
+
+      // Non-retryable errors fall through.
+      break
+    }
+
+    if (!geminiResp || !geminiResp.ok) {
+      // If we still got 429 after retries, surface it as 429 (rate limit / quota).
+      if (geminiResp?.status === 429) {
+        return json(
           {
-            role: 'user',
-            content: [
-              title ? `Title: ${title}` : '',
-              'Raw notes:',
-              clippedRaw,
-              '',
-              'Return Markdown only.',
-            ]
-              .filter(Boolean)
-              .join('\n'),
+            error: 'Gemini rate limited (RESOURCE_EXHAUSTED)',
+            hint: 'Please wait 30–60 seconds and try again, or increase your Gemini API quota.',
+            details: lastText,
           },
-        ],
-      }),
-    })
+          429
+        )
+      }
 
-    if (!openaiResp.ok) {
-      const txt = await openaiResp.text()
-      return json({ error: 'OpenAI request failed', details: txt }, 502)
+      return json({ error: 'Gemini request failed', details: lastText }, 502)
     }
 
-    const openaiJson = await openaiResp.json()
-    const formatted = openaiJson?.choices?.[0]?.message?.content?.toString?.() ?? ''
-
+    const geminiJson = await geminiResp.json()
+    const formatted =
+      geminiJson?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text ?? '').join('') ?? ''
+    
     if (!formatted.trim()) {
-      return json({ error: 'OpenAI returned empty output' }, 502)
+      return json({ error: 'Gemini returned empty output' }, 502)
     }
-
+    
     return json({ formatted_content: formatted })
   } catch (e) {
     return json({ error: 'Unexpected error', details: String(e) }, 500)
