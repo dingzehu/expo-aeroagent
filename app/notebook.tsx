@@ -4,7 +4,7 @@ import { BlurView } from 'expo-blur'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Stack, useRouter } from 'expo-router'
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 // NOTE:
 // Importing from `lucide-react-native` root can force Metro to resolve *thousands* of icons.
 // On some setups this can fail with missing-module errors (e.g. `chevron-last.js`).
@@ -52,6 +52,7 @@ type NotebookListItem = {
   id: string
   title: string | null
   updated_at: string | null
+  notebook_id?: string | null
 }
 
 type AutosaveState = 'idle' | 'dirty' | 'syncing' | 'saved' | 'error'
@@ -136,6 +137,13 @@ export default function NotebookScreen() {
   const router = useRouter()
   const { width: windowWidth, height: windowHeight } = useWindowDimensions()
   const isNarrow = windowWidth < 768
+
+  // URL params: optional pre-load of a specific note and/or a notebook context.
+  const { noteId: noteIdParam, notebookId: notebookIdParam } = useLocalSearchParams<{
+    noteId?: string
+    notebookId?: string
+    new?: string
+  }>()
 
   const skeletonAnim = useRef(new Animated.Value(0)).current
   const autosavePulseAnim = useRef(new Animated.Value(0)).current
@@ -241,6 +249,10 @@ export default function NotebookScreen() {
   const [formattedContent, setFormattedContent] = useState('') // formatted_content
   const [selectedStyle, setSelectedStyle] = useState<PersonaId | null>(null) // selected_style
 
+  // Notebook context: which notebook the current note belongs to.
+  const [currentNotebookId, setCurrentNotebookId] = useState<string | null>(notebookIdParam ?? null)
+  const [currentNotebookName, setCurrentNotebookName] = useState<string | null>(null)
+
   /**
    * Hybrid Preview:
    * - Draft mode: live Markdown preview of `rawContent`
@@ -257,6 +269,14 @@ export default function NotebookScreen() {
   const [noteActionsVisible, setNoteActionsVisible] = useState(false)
   const [noteActionsTarget, setNoteActionsTarget] = useState<NotebookListItem | null>(null)
   const [noteActionsAnchor, setNoteActionsAnchor] = useState<{ x: number; y: number } | null>(null)
+
+  // "Add to Notebook" picker state
+  type NotebookOption = { id: string; name: string; colour_tag: string | null }
+  const [notebookPickerVisible, setNotebookPickerVisible] = useState(false)
+  const [notebookPickerNote, setNotebookPickerNote] = useState<NotebookListItem | null>(null)
+  const [notebookOptions, setNotebookOptions] = useState<NotebookOption[]>([])
+  const [loadingNotebookOptions, setLoadingNotebookOptions] = useState(false)
+  const [assigningNotebookId, setAssigningNotebookId] = useState<string | null>(null)
   const [aiError, setAiError] = useState<string | null>(null)
   // Optional debug info: which persona was last tapped (helps beginners confirm clicks register).
   const [aiLastRun, setAiLastRun] = useState<{ persona: PersonaId; at: number } | null>(null)
@@ -385,6 +405,7 @@ export default function NotebookScreen() {
               // Only store AI output here (drafts don't need formatted_content).
               formatted_content: formattedContent || null,
               selected_style: selectedStyle,
+              notebook_id: currentNotebookId ?? null,
               updated_at: nowIso,
             }
             const { data, error } = await supabase.from('notes').insert(payload).select('id').single()
@@ -392,7 +413,7 @@ export default function NotebookScreen() {
             setNoteId(data.id)
             bumpNotebookListItem({ id: data.id, title: title || null, updated_at: nowIso })
           } catch {
-            // Legacy schema fallback
+            // Legacy schema fallback (body column, no notebook_id)
             const payload = {
               user_id: userId,
               title,
@@ -445,6 +466,7 @@ export default function NotebookScreen() {
     },
     [
       bumpNotebookListItem,
+      currentNotebookId,
       formattedContent,
       makeAutosaveSignature,
       noteId,
@@ -515,7 +537,7 @@ export default function NotebookScreen() {
        */
       const { data, error } = await supabase
         .from('notes')
-        .select('id,title,updated_at')
+        .select('id,title,updated_at,notebook_id')
         .eq('user_id', userId)
         .order('updated_at', { ascending: false })
 
@@ -531,6 +553,25 @@ export default function NotebookScreen() {
   useEffect(() => {
     loadNotebookList()
   }, [loadNotebookList])
+
+  // Auto-load a specific note when the page is opened with a noteId param.
+  useEffect(() => {
+    if (noteIdParam && session?.user?.id) {
+      loadNotebookById(noteIdParam)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteIdParam, session?.user?.id])
+
+  // Resolve the notebook name whenever the current notebook changes.
+  useEffect(() => {
+    if (!currentNotebookId) { setCurrentNotebookName(null); return }
+    supabase
+      .from('notebooks')
+      .select('name')
+      .eq('id', currentNotebookId)
+      .single()
+      .then(({ data }) => setCurrentNotebookName(data?.name ?? null))
+  }, [currentNotebookId])
 
   // ----------------------------
   // Load a note into the workbench when user taps the list
@@ -548,7 +589,7 @@ export default function NotebookScreen() {
         try {
           const { data, error } = await supabase
             .from('notes')
-            .select('id,title,raw_content,formatted_content,selected_style,updated_at')
+            .select('id,title,raw_content,formatted_content,selected_style,updated_at,notebook_id')
             .eq('user_id', userId)
             .eq('id', id)
             .single()
@@ -560,6 +601,7 @@ export default function NotebookScreen() {
           setRawContent(data.raw_content ?? '')
           setFormattedContent(data.formatted_content ?? '')
           setSelectedStyle((data.selected_style ?? null) as PersonaId | null)
+          setCurrentNotebookId(data.notebook_id ?? null)
           // Hybrid Preview default: always open notes in Draft mode.
           setIsPreviewingAI(false)
           lastSavedSignatureRef.current = makeAutosaveSignature(data.title ?? '', data.raw_content ?? '')
@@ -670,6 +712,64 @@ export default function NotebookScreen() {
     setNoteActionsTarget(null)
     setNoteActionsAnchor(null)
   }, [])
+
+  // Open the notebook picker for a note
+  const [notebookPickerAnchor, setNotebookPickerAnchor] = useState<{ x: number; y: number } | null>(null)
+  const openNotebookPicker = useCallback(async (note: NotebookListItem, e?: any) => {
+    const x = e?.nativeEvent?.pageX ?? noteActionsAnchor?.x ?? windowWidth - 16
+    const y = e?.nativeEvent?.pageY ?? noteActionsAnchor?.y ?? 120
+    setNotebookPickerAnchor({ x, y })
+    setNotebookPickerNote(note)
+    setNotebookOptions([])
+    setNotebookPickerVisible(true)
+    setLoadingNotebookOptions(true)
+
+    const { data: { session: s } } = await supabase.auth.getSession()
+    if (!s?.user) { setLoadingNotebookOptions(false); return }
+
+    const { data, error } = await supabase
+      .from('notebooks')
+      .select('id, name, colour_tag')
+      .eq('user_id', s.user.id)
+      .order('created_at', { ascending: false })
+
+    setLoadingNotebookOptions(false)
+    if (!error && data) setNotebookOptions(data as { id: string; name: string; colour_tag: string | null }[])
+  }, [noteActionsAnchor, windowWidth])
+
+  // Open picker for the current note being edited
+  const openCurrentNoteNotebookPicker = useCallback((e: any) => {
+    if (!noteId) return
+    openNotebookPicker({ id: noteId, title } as any, e)
+  }, [noteId, title, openNotebookPicker])
+
+  // Assign a note to a notebook (or remove assignment when notebookId is null)
+  const handleAssignNotebook = useCallback(async (notebookId: string | null) => {
+    if (!notebookPickerNote) return
+    const targetNoteId = notebookPickerNote.id
+    setAssigningNotebookId(notebookId ?? '__remove__')
+
+    const { error } = await supabase
+      .from('notes')
+      .update({ notebook_id: notebookId })
+      .eq('id', targetNoteId)
+
+    setAssigningNotebookId(null)
+    if (error) {
+      Alert.alert('Error', error.message)
+      return
+    }
+
+    // If this is the currently open note, sync the editor's notebook context too
+    if (targetNoteId === noteId) {
+      setCurrentNotebookId(notebookId)
+      const nb = notebookOptions.find(o => o.id === notebookId)
+      setCurrentNotebookName(nb ? nb.name : null)
+    }
+
+    setNotebookPickerVisible(false)
+    setNotebookPickerNote(null)
+  }, [notebookPickerNote, noteId, notebookOptions])
 
   // ----------------------------
   // AI Styling (triggered ONLY by persona selection)
@@ -815,7 +915,7 @@ export default function NotebookScreen() {
     }
 
     clearEditor()
-    router.replace(`/notebook?new=${Date.now()}`)
+    router.replace(`/notebook?new=${Date.now()}${currentNotebookId ? `&notebookId=${currentNotebookId}` : ''}`)
   }, [clearEditor, flushAutosave, router])
 
   const renderAutosaveIndicator = useCallback(() => {
@@ -1055,12 +1155,36 @@ export default function NotebookScreen() {
               autoCapitalize="sentences"
               returnKeyType="done"
             />
-            {/* 
-              Debug/clarity line:
-              - Helps confirm which saved note is currently loaded (if any).
-              - Also prevents the `noteId` state from being “unused”.
-            */}
-            {noteId ? <Text style={styles.muted}>Loaded note: {noteId.slice(0, 8)}…</Text> : null}
+            {noteId && (
+              <Pressable
+                onPress={(e) => openCurrentNoteNotebookPicker(e)}
+                style={[
+                  styles.notebookBadge,
+                  !currentNotebookName && { backgroundColor: '#F3F4F6' }
+                ]}
+              >
+                <Ionicons
+                  name="book-outline"
+                  size={13}
+                  color={currentNotebookName ? "#6366F1" : "#6B7280"}
+                />
+                <Text
+                  style={[
+                    styles.notebookBadgeName,
+                    !currentNotebookName && { color: '#6B7280' }
+                  ]}
+                  numberOfLines={1}
+                >
+                  {currentNotebookName || 'Add to Notebook'}
+                </Text>
+                <Ionicons
+                  name="chevron-down"
+                  size={10}
+                  color={currentNotebookName ? "#6366F1" : "#6B7280"}
+                  style={{ marginLeft: 2 }}
+                />
+              </Pressable>
+            )}
 
             <Text style={[styles.label, { marginTop: 12 }]}>Raw Notes</Text>
             <View style={styles.rawInputWrap}>
@@ -1137,7 +1261,7 @@ export default function NotebookScreen() {
                           onPress={(e) => openNoteActionsAt(n, e)}
                           disabled={deletingId === n.id}
                         >
-                          <Ionicons name="ellipsis-vertical" size={16} color="#444" />
+                          <Ionicons name="menu-outline" size={20} color="#444" />
                         </Pressable>
                       </View>
                     </View>
@@ -1270,7 +1394,7 @@ export default function NotebookScreen() {
                 accessibilityLabel="Share (coming soon)"
                 disabled
                 style={[styles.shareButton, styles.disabled]}
-                onPress={() => {}}
+                onPress={() => { }}
               >
                 <MaterialIcons name="ios-share" size={18} color="#111827" />
               </Pressable>
@@ -1367,7 +1491,7 @@ export default function NotebookScreen() {
                         onPress={(e) => openNoteActionsAt(n, e)}
                         disabled={deletingId === n.id}
                       >
-                        <Ionicons name="ellipsis-vertical" size={16} color="#444" />
+                        <Ionicons name="menu-outline" size={20} color="#444" />
                       </Pressable>
                     </View>
                   </View>
@@ -1450,7 +1574,7 @@ export default function NotebookScreen() {
       {/* Auth popup (same as main page) */}
       <Modal transparent visible={authVisible} animationType="slide" onRequestClose={() => setAuthVisible(false)}>
         <Pressable style={styles.backdrop} onPress={() => setAuthVisible(false)}>
-          <Pressable style={styles.sheet} onPress={() => {}}>
+          <Pressable style={styles.sheet} onPress={() => { }}>
             <Auth mode={authMode} onSuccess={() => setAuthVisible(false)} />
             <Pressable style={[styles.drawerButton, { marginTop: 8 }]} onPress={() => setAuthVisible(false)}>
               <Text style={styles.drawerButtonText}>Close</Text>
@@ -1494,6 +1618,21 @@ export default function NotebookScreen() {
                 </Text>
 
                 <Pressable
+                  style={styles.actionsMenuItem}
+                  onPress={() => {
+                    if (!noteActionsTarget) return
+                    const target = noteActionsTarget
+                    // Pass the original anchor coordinates so the picker points to the note in the list
+                    const anchor = { nativeEvent: { pageX: anchorX, pageY: anchorY } }
+                    closeNoteActions()
+                    openNotebookPicker(target, anchor)
+                  }}
+                >
+                  <Ionicons name="book-outline" size={18} color="#374151" />
+                  <Text style={styles.actionsMenuItemText}>Add to Notebook</Text>
+                </Pressable>
+
+                <Pressable
                   style={[styles.actionsMenuItemDanger, deletingId && styles.disabled]}
                   disabled={!noteActionsTarget || !!deletingId}
                   onPress={async () => {
@@ -1510,6 +1649,99 @@ export default function NotebookScreen() {
                 <Pressable style={styles.actionsMenuItem} onPress={closeNoteActions}>
                   <MaterialIcons name="close" size={18} color="#374151" />
                   <Text style={styles.actionsMenuItemText}>Cancel</Text>
+                </Pressable>
+              </View>
+            )
+          })()}
+        </View>
+      </Modal>
+
+      {/* ── Add to Notebook picker (anchored popover) ── */}
+      <Modal
+        transparent
+        visible={notebookPickerVisible}
+        animationType="fade"
+        onRequestClose={() => { setNotebookPickerVisible(false); setNotebookPickerNote(null) }}
+      >
+        <View style={StyleSheet.absoluteFillObject}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => { setNotebookPickerVisible(false); setNotebookPickerNote(null) }} />
+
+          {(() => {
+            const MENU_W = 240
+            const anchorX = notebookPickerAnchor?.x ?? windowWidth - 16
+            const anchorY = notebookPickerAnchor?.y ?? 120
+
+            // Position: align the popover’s right edge near the tap.
+            const left = Math.min(Math.max(anchorX - MENU_W + 10, 8), windowWidth - MENU_W - 8)
+            const top = Math.min(Math.max(anchorY + 10, 8), windowHeight - 320)
+
+            // Tip: place it near the tap X, clamped inside the menu width.
+            const tipLeft = Math.min(Math.max(anchorX - left - 10, 14), MENU_W - 26)
+
+            return (
+              <View style={[styles.nbPickerPopover, { width: MENU_W, left, top }]}>
+                {/* Tip border (slightly darker) */}
+                <View style={[styles.nbPickerTipBorder, { left: tipLeft }]} />
+                {/* Tip fill */}
+                <View style={[styles.nbPickerTip, { left: tipLeft }]} />
+
+                <Text style={styles.nbPickerTitle}>Add to Notebook</Text>
+                {notebookPickerNote ? (
+                  <Text style={styles.nbPickerSubtitle} numberOfLines={1}>
+                    {(notebookPickerNote.title ?? '').trim() || 'Untitled note'}
+                  </Text>
+                ) : null}
+
+                {loadingNotebookOptions ? (
+                  <ActivityIndicator size="small" color="#6366F1" style={{ marginVertical: 16 }} />
+                ) : notebookOptions.length === 0 ? (
+                  <View style={styles.nbPickerEmpty}>
+                    <Text style={styles.nbPickerEmptyText}>No notebooks yet.</Text>
+                  </View>
+                ) : (
+                  <ScrollView style={[styles.nbPickerList, { maxHeight: 200 }]} bounces={false}>
+                    {notebookOptions.map((nb) => {
+                      const accent = nb.colour_tag || '#6366F1'
+                      const isActive = nb.id === currentNotebookId
+                      const isAssigning = assigningNotebookId === nb.id
+                      return (
+                        <Pressable
+                          key={nb.id}
+                          style={[styles.nbPickerItem, isActive && styles.nbPickerItemActive]}
+                          onPress={() => handleAssignNotebook(nb.id)}
+                          disabled={!!assigningNotebookId}
+                        >
+                          <View style={[styles.nbPickerDot, { backgroundColor: accent }]} />
+                          <Text style={[styles.nbPickerItemText, isActive && styles.nbPickerItemTextActive]} numberOfLines={1}>
+                            {nb.name}
+                          </Text>
+                          {isAssigning ? (
+                            <ActivityIndicator size="small" color={accent} />
+                          ) : isActive ? (
+                            <Ionicons name="checkmark-circle" size={16} color={accent} />
+                          ) : null}
+                        </Pressable>
+                      )
+                    })}
+
+                    {/* Remove from notebook option */}
+                    {currentNotebookId ? (
+                      <Pressable
+                        style={styles.nbPickerRemoveItem}
+                        onPress={() => handleAssignNotebook(null)}
+                        disabled={!!assigningNotebookId}
+                      >
+                        <Text style={styles.nbPickerRemoveText}>Remove from notebook</Text>
+                      </Pressable>
+                    ) : null}
+                  </ScrollView>
+                )}
+
+                <Pressable
+                  style={styles.nbPickerCancelBtn}
+                  onPress={() => { setNotebookPickerVisible(false); setNotebookPickerNote(null) }}
+                >
+                  <Text style={styles.nbPickerCancelText}>Cancel</Text>
                 </Pressable>
               </View>
             )
@@ -1607,6 +1839,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     backgroundColor: '#fff',
+  },
+  notebookBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    backgroundColor: '#EEF2FF',
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginTop: 6,
+  },
+  notebookBadgeName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6366F1',
   },
   noteTitleRow: {
     flexDirection: 'row',
@@ -2133,5 +2381,127 @@ const styles = StyleSheet.create({
     color: '#991b1b',
     textAlign: 'center',
   },
-})
 
+  // ── Notebook picker popover ──────────────────────────────────────────────────
+  nbPickerPopover: {
+    position: 'absolute',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    // iOS shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    // Android shadow
+    elevation: 8,
+  },
+  nbPickerTipBorder: {
+    position: 'absolute',
+    top: -9,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderBottomWidth: 9,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#e5e7eb',
+  },
+  nbPickerTip: {
+    position: 'absolute',
+    top: -8,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderBottomWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#fff',
+  },
+  nbPickerTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#111',
+    marginBottom: 2,
+  },
+  nbPickerSubtitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#888',
+    marginBottom: 10,
+  },
+  nbPickerList: {
+    marginTop: 4,
+  },
+  nbPickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    marginBottom: 4,
+    backgroundColor: '#F9FAFB',
+  },
+  nbPickerItemActive: {
+    backgroundColor: '#EEF2FF',
+  },
+  nbPickerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+  },
+  nbPickerItemText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111',
+  },
+  nbPickerItemTextActive: {
+    color: '#6366F1',
+  },
+  nbPickerEmpty: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  nbPickerEmptyText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#aaa',
+  },
+  nbPickerRemoveItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    marginTop: 4,
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+  },
+  nbPickerRemoveText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#991b1b',
+  },
+  nbPickerCancelBtn: {
+    marginTop: 8,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+  },
+  nbPickerCancelText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#4b5563',
+  },
+  nbPickerEmptyHint: {
+    fontSize: 12,
+    color: '#bbb',
+    textAlign: 'center',
+    maxWidth: 240,
+  },
+});

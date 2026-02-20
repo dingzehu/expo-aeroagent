@@ -16,6 +16,16 @@ export default function RootLayout() {
           headerTitle: () => <Text style={{ fontSize: 18, fontWeight: "bold" }}>Login</Text>,
         }}
       />
+      <Stack.Screen
+        name="notebooks"
+        options={{
+          headerTitle: () => <Text style={{ fontSize: 18, fontWeight: "bold" }}>Notebooks</Text>,
+        }}
+      />
+      <Stack.Screen
+        name="notebooks/[notebookId]"
+        options={{ headerBackTitle: 'Notebooks' }}
+      />
     </Stack>
   )
 }

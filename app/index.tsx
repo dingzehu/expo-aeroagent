@@ -72,13 +72,20 @@ export default function Index() {
           <Auth mode="signIn" />
         </View>
       ) : null}
-
-      <Pressable
-        style={styles.button}
-        onPress={() => router.push('/notebook')}
-      >
-        <Text style={styles.text}>Open Notebook</Text>
-      </Pressable>
+      <View style={styles.buttonsContainer}>
+        <Pressable
+          style={[styles.button, { flex: 1, marginRight: 6 }]}
+          onPress={() => router.push('/notebooks')}
+        >
+          <Text style={styles.text}>Notebooks</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.button, { flex: 1, marginLeft: 6 }]}
+          onPress={() => router.push('/notebook')}
+        >
+          <Text style={styles.text}>Notes</Text>
+        </Pressable>
+      </View>
       <Pressable
         style={styles.button}
         onPress={() => router.push('/taskManager')}
@@ -184,6 +191,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
     maxWidth: 360,
+    marginBottom: 12,
+  },
+  buttonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    width: '100%',
+    maxWidth: 800,
     marginBottom: 12,
   },
   text: {
