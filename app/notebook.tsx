@@ -282,6 +282,11 @@ export default function NotebookScreen() {
   // Optional debug info: which persona was last tapped (helps beginners confirm clicks register).
   const [aiLastRun, setAiLastRun] = useState<{ persona: PersonaId; at: number } | null>(null)
 
+  // Storage for all notebooks (for grouping in the drawer)
+  type NotebookData = { id: string; name: string }
+  const [allNotebooks, setAllNotebooks] = useState<NotebookData[]>([])
+  const [expandedNotebookIds, setExpandedNotebookIds] = useState<string[]>(['__none__'])
+
   // Autosave (“Studio” UX): debounced background sync.
   const [autosaveState, setAutosaveState] = useState<AutosaveState>('idle')
   const [autosaveError, setAutosaveError] = useState<string | null>(null)
@@ -351,6 +356,45 @@ export default function NotebookScreen() {
     if (!q) return notebookList
     return notebookList.filter((n) => ((n.title ?? '').trim() || '').toLowerCase().includes(q))
   }, [notebookList, savedSearch])
+
+  const groupedNotes = useMemo(() => {
+    const groups: Record<string, { notebookId: string | null; notebookName: string; notes: NotebookListItem[] }> = {}
+
+    // Always provide a bucket for non-notebook notes
+    groups['__none__'] = { notebookId: null, notebookName: 'General Notes', notes: [] }
+
+    // Prepare buckets for each notebook the user has
+    allNotebooks.forEach(nb => {
+      groups[nb.id] = { notebookId: nb.id, notebookName: nb.name, notes: [] }
+    })
+
+    // Sort notes into buckets
+    filteredNotebookList.forEach(note => {
+      const nid = note.notebook_id || '__none__'
+      if (!groups[nid]) {
+        groups[nid] = { notebookId: nid, notebookName: 'Other', notes: [] }
+      }
+      groups[nid].notes.push(note)
+    })
+
+    // Return as array, removing empty groups
+    return Object.values(groups).filter(g => g.notes.length > 0)
+  }, [allNotebooks, filteredNotebookList])
+
+  const toggleGroupExpand = (id: string) => {
+    setExpandedNotebookIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const loadAllNotebooks = useCallback(async () => {
+    const userId = session?.user?.id
+    if (!userId) return
+    const { data } = await supabase.from('notebooks').select('id, name').eq('user_id', userId)
+    if (data) setAllNotebooks(data)
+  }, [session?.user?.id])
+
+  useEffect(() => { loadAllNotebooks() }, [loadAllNotebooks])
 
   const makeAutosaveSignature = useCallback((t: string, r: string) => {
     // Keep it stable and cheap: we only care about user-facing “draft” content.
@@ -1049,27 +1093,27 @@ export default function NotebookScreen() {
     const HeaderLeft = () => (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="New note"
-        onPress={handleNewNote}
+        accessibilityLabel={isNarrow ? 'Saved notes' : 'Toggle sidebar'}
+        onPress={toggleSavedListOrSidebar}
         style={{ paddingHorizontal: 12, paddingVertical: 6 }}
       >
-        <MaterialIcons name="note-add" size={22} color="#111" />
+        <MaterialIcons name="menu" size={24} color="#111" />
       </Pressable>
     )
     HeaderLeft.displayName = 'HeaderLeft'
     return HeaderLeft
-  }, [handleNewNote])
+  }, [isNarrow, toggleSavedListOrSidebar])
 
   const headerRight = useMemo(() => {
     const HeaderRight = () => (
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={isNarrow ? 'Saved notes' : 'Toggle sidebar'}
-          onPress={toggleSavedListOrSidebar}
+          accessibilityLabel="New note"
+          onPress={handleNewNote}
           style={{ paddingHorizontal: 10, paddingVertical: 6 }}
         >
-          <MaterialIcons name="menu" size={24} color="#111" />
+          <MaterialIcons name="note-add" size={22} color="#111" />
         </Pressable>
 
         <Pressable
@@ -1087,7 +1131,7 @@ export default function NotebookScreen() {
     )
     HeaderRight.displayName = 'HeaderRight'
     return HeaderRight
-  }, [closeDrawer, drawerVisible, isNarrow, openDrawer, toggleSavedListOrSidebar])
+  }, [closeDrawer, drawerVisible, handleNewNote, openDrawer])
 
   const headerTitle = useMemo(() => {
     const HeaderTitle = () => (
@@ -1213,7 +1257,7 @@ export default function NotebookScreen() {
                 <Text style={styles.listHeader}>Saved</Text>
                 <TextInput
                   style={styles.listSearchInput}
-                  placeholder="Search notes…"
+                  placeholder="Search…"
                   value={savedSearch}
                   onChangeText={setSavedSearch}
                   autoCapitalize="none"
@@ -1409,7 +1453,7 @@ export default function NotebookScreen() {
           {/* Tap outside closes */}
           <Pressable style={StyleSheet.absoluteFillObject} onPress={closeSavedDrawer} />
 
-          {/* Drawer panel slides in from the right */}
+          {/* Drawer panel slides in from the LEFT */}
           <Animated.View
             style={[
               styles.savedDrawer,
@@ -1419,7 +1463,7 @@ export default function NotebookScreen() {
                   {
                     translateX: savedDrawerAnim.interpolate({
                       inputRange: [0, 1],
-                      outputRange: [savedDrawerWidth, 0],
+                      outputRange: [-savedDrawerWidth, 0],
                     }),
                   },
                 ],
@@ -1427,10 +1471,10 @@ export default function NotebookScreen() {
             ]}
           >
             <View style={styles.savedDrawerTopRow}>
-              <Text style={styles.drawerTitle}>Saved Notes</Text>
+              <Text style={styles.drawerTitle}>Studio Menu</Text>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Close saved notes"
+                accessibilityLabel="Close menu"
                 hitSlop={10}
                 style={styles.savedDrawerClose}
                 onPress={closeSavedDrawer}
@@ -1439,11 +1483,22 @@ export default function NotebookScreen() {
               </Pressable>
             </View>
 
+            {/* Prominent Add New Note button inside the drawer */}
+            <Pressable
+              style={styles.drawerNewNoteBtn}
+              onPress={() => {
+                handleNewNote()
+                closeSavedDrawer()
+              }}
+            >
+              <MaterialIcons name="note-add" size={20} color="#fff" />
+              <Text style={styles.drawerNewNoteBtnText}>New Note</Text>
+            </Pressable>
+
             <View style={styles.listHeaderRow}>
-              <Text style={styles.listHeader}>Saved</Text>
               <TextInput
                 style={styles.listSearchInput}
-                placeholder="Search notes…"
+                placeholder="Search..."
                 value={savedSearch}
                 onChangeText={setSavedSearch}
                 autoCapitalize="none"
@@ -1452,43 +1507,69 @@ export default function NotebookScreen() {
                 clearButtonMode="while-editing"
               />
             </View>
-            {loadingList ? <Text style={styles.muted}>Loading…</Text> : null}
+            {loadingList ? <Text style={styles.muted}>Loading notes…</Text> : null}
 
             <ScrollView style={styles.listScroll} keyboardShouldPersistTaps="handled">
-              {filteredNotebookList.length === 0 ? (
+              {groupedNotes.length === 0 ? (
                 <Text style={styles.muted}>{savedSearch.trim() ? 'No matches' : 'No notes yet'}</Text>
               ) : (
-                filteredNotebookList.map((n) => (
-                  <View key={n.id} style={styles.listItem}>
-                    <View style={styles.listItemRow}>
+                groupedNotes.map((group) => {
+                  const groupId = group.notebookId || '__none__'
+                  const isExpanded = expandedNotebookIds.includes(groupId)
+                  return (
+                    <View key={groupId} style={styles.noteGroup}>
                       <Pressable
-                        style={styles.listItemTextCol}
-                        onPress={() => {
-                          loadNotebookById(n.id)
-                          closeSavedDrawer()
-                        }}
+                        style={styles.noteGroupHeader}
+                        onPress={() => toggleGroupExpand(groupId)}
                       >
-                        <Text style={styles.listItemTitle} numberOfLines={1}>
-                          {(n.title ?? '').trim() ? n.title : '(Untitled)'}
-                        </Text>
-                        <Text style={styles.listItemMeta} numberOfLines={1}>
-                          {n.updated_at ? new Date(n.updated_at).toLocaleString() : ''}
+                        <Ionicons
+                          name={isExpanded ? "chevron-down" : "chevron-forward"}
+                          size={16}
+                          color="#666"
+                        />
+                        <Text style={styles.noteGroupTitle} numberOfLines={1}>
+                          {group.notebookName} ({group.notes.length})
                         </Text>
                       </Pressable>
 
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="More actions"
-                        hitSlop={10}
-                        style={styles.moreButton}
-                        onPress={(e) => openNoteActionsAt(n, e)}
-                        disabled={deletingId === n.id}
-                      >
-                        <Ionicons name="menu-outline" size={20} color="#444" />
-                      </Pressable>
+                      {isExpanded && (
+                        <View style={styles.noteGroupContent}>
+                          {group.notes.map((n) => (
+                            <View key={n.id} style={styles.listItem}>
+                              <View style={styles.listItemRow}>
+                                <Pressable
+                                  style={styles.listItemTextCol}
+                                  onPress={() => {
+                                    loadNotebookById(n.id)
+                                    closeSavedDrawer()
+                                  }}
+                                >
+                                  <Text style={styles.listItemTitle} numberOfLines={1}>
+                                    {(n.title ?? '').trim() ? n.title : '(Untitled)'}
+                                  </Text>
+                                  <Text style={styles.listItemMeta} numberOfLines={1}>
+                                    {n.updated_at ? new Date(n.updated_at).toLocaleDateString() : ''}
+                                  </Text>
+                                </Pressable>
+
+                                <Pressable
+                                  accessibilityRole="button"
+                                  accessibilityLabel="More actions"
+                                  hitSlop={10}
+                                  style={styles.moreButton}
+                                  onPress={(e) => openNoteActionsAt(n, e)}
+                                  disabled={deletingId === n.id}
+                                >
+                                  <Ionicons name="menu-outline" size={20} color="#444" />
+                                </Pressable>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      )}
                     </View>
-                  </View>
-                ))
+                  )
+                })
               )}
             </ScrollView>
           </Animated.View>
@@ -2168,18 +2249,63 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   savedDrawer: {
-    alignSelf: 'flex-end',
+    alignSelf: 'flex-start',
     height: '100%',
     backgroundColor: '#fff',
     paddingTop: 18,
-    paddingHorizontal: 14,
+    paddingHorizontal: 0, // content handles horizontal padding
     paddingBottom: 16,
+    // Add a shadow for separation on web
+    shadowColor: '#000',
+    shadowOffset: { width: 4, height: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 10,
   },
   savedDrawerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 16,
+    paddingHorizontal: 14,
+  },
+  drawerNewNoteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#6366F1',
+    marginHorizontal: 14,
+    marginBottom: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+  },
+  drawerNewNoteBtnText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  noteGroup: {
+    marginBottom: 4,
+  },
+  noteGroupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: '#F9FAFB',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  noteGroupTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#4B5563',
+    flex: 1,
+  },
+  noteGroupContent: {
+    paddingLeft: 4,
   },
   savedDrawerClose: {
     paddingHorizontal: 6,
