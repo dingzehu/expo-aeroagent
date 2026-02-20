@@ -4,11 +4,13 @@ import React, { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native'
 import { supabase } from '../../lib/supabase'
 
@@ -51,12 +53,12 @@ function NoteCard({
   note,
   accentColor,
   onPress,
-  onDelete,
+  onMore,
 }: {
   note: Note
   accentColor: string
   onPress: () => void
-  onDelete: () => void
+  onMore: (e: any) => void
 }) {
   return (
     <Pressable style={card.wrap} onPress={onPress}>
@@ -68,10 +70,10 @@ function NoteCard({
       </View>
       <Pressable
         hitSlop={10}
-        onPress={(e) => { e.stopPropagation?.(); onDelete() }}
-        style={card.deleteBtn}
+        onPress={(e) => { e.stopPropagation?.(); onMore(e) }}
+        style={card.moreBtn}
       >
-        <Ionicons name="trash-outline" size={15} color="#ccc" />
+        <Ionicons name="menu-outline" size={20} color="#666" />
       </Pressable>
     </Pressable>
   )
@@ -82,10 +84,22 @@ function NoteCard({
 export default function NotebookDetailScreen() {
   const { notebookId } = useLocalSearchParams<{ notebookId: string }>()
   const router = useRouter()
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions()
 
   const [notebook, setNotebook] = useState<Notebook | null>(null)
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Consolidated popover state for smooth transitions
+  const [popoverMode, setPopoverMode] = useState<'actions' | 'picker' | null>(null)
+  const [noteActionsTarget, setNoteActionsTarget] = useState<Note | null>(null)
+  const [noteActionsAnchor, setNoteActionsAnchor] = useState<{ x: number; y: number } | null>(null)
+
+  // Notebook picker state
+  const [notebookPickerAnchor, setNotebookPickerAnchor] = useState<{ x: number; y: number } | null>(null)
+  const [notebookOptions, setNotebookOptions] = useState<Notebook[]>([])
+  const [loadingNotebookOptions, setLoadingNotebookOptions] = useState(false)
+  const [assigningNotebookId, setAssigningNotebookId] = useState<string | null>(null)
 
   const accentColor = notebook?.colour_tag || '#6366F1'
 
@@ -111,11 +125,64 @@ export default function NotebookDetailScreen() {
     setLoading(false)
   }, [notebookId])
 
-  // Initial load
   useEffect(() => { fetchData() }, [fetchData])
-
-  // Refresh when returning from the note editor
   useFocusEffect(useCallback(() => { fetchData() }, [fetchData]))
+
+  const openNoteActionsAt = useCallback((note: Note, e?: any) => {
+    const x = e?.nativeEvent?.pageX ?? windowWidth - 16
+    const y = e?.nativeEvent?.pageY ?? 120
+    setNoteActionsAnchor({ x, y })
+    setNoteActionsTarget(note)
+    setPopoverMode('actions')
+  }, [windowWidth])
+
+  const closeNoteActions = () => {
+    setPopoverMode(null)
+    setNoteActionsAnchor(null)
+  }
+
+  const openNotebookPicker = async (note: Note, e?: any) => {
+    const x = e?.nativeEvent?.pageX ?? noteActionsAnchor?.x ?? windowWidth - 16
+    const y = e?.nativeEvent?.pageY ?? noteActionsAnchor?.y ?? 120
+    setNotebookPickerAnchor({ x, y })
+    setNoteActionsTarget(note)
+    setPopoverMode('picker')
+    setLoadingNotebookOptions(true)
+
+    const { data: { session: s } } = await supabase.auth.getSession()
+    if (!s?.user) { setLoadingNotebookOptions(false); return }
+
+    const { data, error } = await supabase
+      .from('notebooks')
+      .select('id, name, colour_tag')
+      .eq('user_id', s.user.id)
+      .order('created_at', { ascending: false })
+
+    setLoadingNotebookOptions(false)
+    if (!error && data) setNotebookOptions(data as Notebook[])
+  }
+
+  const handleAssignNotebook = async (targetNotebookId: string | null) => {
+    if (!noteActionsTarget) return
+    const targetNoteId = noteActionsTarget.id
+    setAssigningNotebookId(targetNotebookId ?? '__remove__')
+
+    const { error } = await supabase
+      .from('notes')
+      .update({ notebook_id: targetNotebookId })
+      .eq('id', targetNoteId)
+
+    setAssigningNotebookId(null)
+    if (error) {
+      Alert.alert('Error', error.message)
+      return
+    }
+
+    if (targetNotebookId !== notebookId) {
+      setNotes((prev) => prev.filter((n) => n.id !== targetNoteId))
+    }
+    setPopoverMode(null)
+  }
 
   const handleDelete = (note: Note) => {
     Alert.alert(
@@ -136,13 +203,17 @@ export default function NotebookDetailScreen() {
     )
   }
 
-  // Open the full note editor with notebook context
   const openEditor = (note?: Note) => {
-    const base = `/notebook?notebookId=${notebookId}`
     if (note) {
-      router.push(`${base}&noteId=${note.id}`)
+      router.push({
+        pathname: '/notebook',
+        params: { notebookId, noteId: note.id } as any
+      })
     } else {
-      router.push(base)
+      router.push({
+        pathname: '/notebook',
+        params: { notebookId } as any
+      })
     }
   }
 
@@ -183,16 +254,126 @@ export default function NotebookDetailScreen() {
               note={note}
               accentColor={accentColor}
               onPress={() => openEditor(note)}
-              onDelete={() => handleDelete(note)}
+              onMore={(e) => openNoteActionsAt(note, e)}
             />
           ))}
         </ScrollView>
       )}
+
+      {/* Anchored Popover (combined actions + picker for smooth web transitions) */}
+      <Modal
+        transparent
+        visible={!!popoverMode}
+        animationType="fade"
+        onRequestClose={() => setPopoverMode(null)}
+      >
+        <View style={StyleSheet.absoluteFillObject}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setPopoverMode(null)} />
+
+          {popoverMode === 'actions' && (() => {
+            const MENU_W = 220
+            const anchorX = noteActionsAnchor?.x ?? windowWidth - 16
+            const anchorY = noteActionsAnchor?.y ?? 120
+            const left = Math.min(Math.max(anchorX - MENU_W + 10, 8), windowWidth - MENU_W - 8)
+            const top = Math.min(Math.max(anchorY + 10, 8), windowHeight - 160)
+            const tipLeft = Math.min(Math.max(anchorX - left - 10, 14), MENU_W - 26)
+
+            return (
+              <View style={[popover.menu, { width: MENU_W, left, top }]}>
+                <View style={[popover.tipBorder, { left: tipLeft }]} />
+                <View style={[popover.tip, { left: tipLeft }]} />
+
+                <Text style={popover.menuTitle} numberOfLines={1}>
+                  {noteActionsTarget?.title || '(Untitled)'}
+                </Text>
+
+                <Pressable style={popover.menuItem} onPress={() => {
+                  const target = noteActionsTarget
+                  if (!target) return
+                  setPopoverMode(null)
+                  openEditor(target)
+                }}>
+                  <Ionicons name="create-outline" size={18} color="#374151" />
+                  <Text style={popover.menuItemText}>Open in Editor</Text>
+                </Pressable>
+
+                <Pressable style={popover.menuItem} onPress={() => {
+                  if (!noteActionsTarget) return
+                  const target = noteActionsTarget
+                  const anchor = { nativeEvent: { pageX: anchorX, pageY: anchorY } }
+                  openNotebookPicker(target, anchor)
+                }}>
+                  <Ionicons name="book-outline" size={18} color="#374151" />
+                  <Text style={popover.menuItemText}>Move to Notebook</Text>
+                </Pressable>
+
+                <Pressable style={popover.menuItemDanger} onPress={() => {
+                  if (!noteActionsTarget) return
+                  const target = noteActionsTarget
+                  setPopoverMode(null)
+                  handleDelete(target)
+                }}>
+                  <Ionicons name="trash-outline" size={18} color="#991b1b" />
+                  <Text style={popover.menuItemDangerText}>Delete Note</Text>
+                </Pressable>
+              </View>
+            )
+          })()}
+
+          {popoverMode === 'picker' && (() => {
+            const MENU_W = 240
+            const anchorX = notebookPickerAnchor?.x ?? windowWidth - 16
+            const anchorY = notebookPickerAnchor?.y ?? 120
+            const left = Math.min(Math.max(anchorX - MENU_W + 10, 8), windowWidth - MENU_W - 8)
+            const top = Math.min(Math.max(anchorY + 10, 8), windowHeight - 320)
+            const tipLeft = Math.min(Math.max(anchorX - left - 10, 14), MENU_W - 26)
+
+            return (
+              <View style={[popover.menu, { width: MENU_W, left, top }]}>
+                <View style={[popover.tipBorder, { left: tipLeft }]} />
+                <View style={[popover.tip, { left: tipLeft }]} />
+
+                <Text style={popover.menuTitle}>Move to Notebook</Text>
+                {loadingNotebookOptions ? (
+                  <ActivityIndicator size="small" color="#6366F1" style={{ marginVertical: 16 }} />
+                ) : (
+                  <ScrollView style={{ maxHeight: 200 }} bounces={false}>
+                    {notebookOptions.map((nb) => {
+                      const iconColor = nb.colour_tag || '#6366F1'
+                      const isActive = nb.id === notebookId
+                      return (
+                        <Pressable
+                          key={nb.id}
+                          style={[popover.menuItem, isActive && { backgroundColor: '#EEF2FF' }]}
+                          onPress={() => handleAssignNotebook(nb.id)}
+                          disabled={!!assigningNotebookId}
+                        >
+                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: iconColor }} />
+                          <Text style={[popover.menuItemText, isActive && { color: '#6366F1' }]} numberOfLines={1}>
+                            {nb.name}
+                          </Text>
+                          {isActive && <Ionicons name="checkmark" size={14} color={iconColor} />}
+                        </Pressable>
+                      )
+                    })}
+                    {notebookId && (
+                      <Pressable style={popover.menuItemDanger} onPress={() => handleAssignNotebook(null)}>
+                        <Text style={popover.menuItemDangerText}>Remove from notebook</Text>
+                      </Pressable>
+                    )}
+                  </ScrollView>
+                )}
+                <Pressable style={popover.cancelBtn} onPress={() => setPopoverMode(null)}>
+                  <Text style={popover.cancelText}>Cancel</Text>
+                </Pressable>
+              </View>
+            )
+          })()}
+        </View>
+      </Modal>
     </View>
   )
 }
-
-// ─── Styles ────────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F9FAFB' },
@@ -241,5 +422,70 @@ const card = StyleSheet.create({
   title: { fontSize: 15, fontWeight: '700', color: '#111' },
   preview: { marginTop: 3, fontSize: 12, color: '#999', lineHeight: 16 },
   meta: { marginTop: 6, fontSize: 11, color: '#bbb', fontWeight: '500' },
-  deleteBtn: { padding: 6 },
+  moreBtn: { padding: 8, backgroundColor: '#f0f0f0', borderRadius: 20 },
+})
+
+const popover = StyleSheet.create({
+  menu: {
+    position: 'absolute',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  tipBorder: {
+    position: 'absolute',
+    top: -9,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderBottomWidth: 9,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#e5e7eb',
+  },
+  tip: {
+    position: 'absolute',
+    top: -8,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderBottomWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#fff',
+  },
+  menuTitle: { fontSize: 12, fontWeight: '800', color: '#111827', marginBottom: 8, paddingHorizontal: 4 },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    marginTop: 6,
+  },
+  menuItemText: { fontSize: 13, fontWeight: '800', color: '#111827' },
+  menuItemDanger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#FEF2F2',
+    marginTop: 6,
+  },
+  menuItemDangerText: { fontSize: 13, fontWeight: '900', color: '#991b1b' },
+  cancelBtn: { marginTop: 8, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: '#F3F4F6' },
+  cancelText: { fontSize: 13, fontWeight: '800', color: '#4b5563' },
 })

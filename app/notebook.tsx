@@ -266,14 +266,15 @@ export default function NotebookScreen() {
   const [savedSearch, setSavedSearch] = useState('')
   const [styling, setStyling] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [noteActionsVisible, setNoteActionsVisible] = useState(false)
+  // Consolidated popover state for smooth transitions (web specifically)
+  const [popoverMode, setPopoverMode] = useState<'actions' | 'picker' | null>(null)
   const [noteActionsTarget, setNoteActionsTarget] = useState<NotebookListItem | null>(null)
   const [noteActionsAnchor, setNoteActionsAnchor] = useState<{ x: number; y: number } | null>(null)
 
   // "Add to Notebook" picker state
   type NotebookOption = { id: string; name: string; colour_tag: string | null }
-  const [notebookPickerVisible, setNotebookPickerVisible] = useState(false)
   const [notebookPickerNote, setNotebookPickerNote] = useState<NotebookListItem | null>(null)
+  const [notebookPickerAnchor, setNotebookPickerAnchor] = useState<{ x: number; y: number } | null>(null)
   const [notebookOptions, setNotebookOptions] = useState<NotebookOption[]>([])
   const [loadingNotebookOptions, setLoadingNotebookOptions] = useState(false)
   const [assigningNotebookId, setAssigningNotebookId] = useState<string | null>(null)
@@ -686,42 +687,34 @@ export default function NotebookScreen() {
     // show near the top-right so it still appears on screen.
     setNoteActionsAnchor({ x: windowWidth - 16, y: 120 })
     setNoteActionsTarget(note)
-    setNoteActionsVisible(true)
+    setPopoverMode('actions')
   }, [windowWidth])
 
   const openNoteActionsAt = useCallback(
     (note: NotebookListItem, e: any) => {
-      /**
-       * We capture screen coordinates so we can position a small popover
-       * right next to the tapped “3 dots” icon.
-       *
-       * RN provides these on both native + web:
-       * - pageX / pageY: absolute position in the window
-       */
       const x = e?.nativeEvent?.pageX ?? windowWidth - 16
       const y = e?.nativeEvent?.pageY ?? 120
       setNoteActionsAnchor({ x, y })
       setNoteActionsTarget(note)
-      setNoteActionsVisible(true)
+      setPopoverMode('actions')
     },
     [windowWidth]
   )
 
   const closeNoteActions = useCallback(() => {
-    setNoteActionsVisible(false)
+    setPopoverMode(null)
     setNoteActionsTarget(null)
     setNoteActionsAnchor(null)
   }, [])
 
   // Open the notebook picker for a note
-  const [notebookPickerAnchor, setNotebookPickerAnchor] = useState<{ x: number; y: number } | null>(null)
   const openNotebookPicker = useCallback(async (note: NotebookListItem, e?: any) => {
     const x = e?.nativeEvent?.pageX ?? noteActionsAnchor?.x ?? windowWidth - 16
     const y = e?.nativeEvent?.pageY ?? noteActionsAnchor?.y ?? 120
     setNotebookPickerAnchor({ x, y })
     setNotebookPickerNote(note)
     setNotebookOptions([])
-    setNotebookPickerVisible(true)
+    setPopoverMode('picker')
     setLoadingNotebookOptions(true)
 
     const { data: { session: s } } = await supabase.auth.getSession()
@@ -767,7 +760,7 @@ export default function NotebookScreen() {
       setCurrentNotebookName(nb ? nb.name : null)
     }
 
-    setNotebookPickerVisible(false)
+    setPopoverMode(null)
     setNotebookPickerNote(null)
   }, [notebookPickerNote, noteId, notebookOptions])
 
@@ -1583,115 +1576,83 @@ export default function NotebookScreen() {
         </Pressable>
       </Modal>
 
-      {/* Note actions sheet (replaces Alert.alert so it works on web + native) */}
-      <Modal transparent visible={noteActionsVisible} animationType="fade" onRequestClose={closeNoteActions}>
-        {/**
-         * Small anchored popover (instead of centered sheet):
-         * - Positioned near the tapped 3-dots icon (using pageX/pageY).
-         * - Right-aligned (popover grows left from the tap).
-         * - Includes a small “tip” triangle pointing to the tap target.
-         */}
+      {/* Anchored Popover (combined actions + picker for smooth web transitions) */}
+      <Modal
+        transparent
+        visible={!!popoverMode}
+        animationType="fade"
+        onRequestClose={() => setPopoverMode(null)}
+      >
         <View style={StyleSheet.absoluteFillObject}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={closeNoteActions} />
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setPopoverMode(null)} />
 
-          {(() => {
+          {popoverMode === 'actions' && (() => {
             const MENU_W = 220
             const anchorX = noteActionsAnchor?.x ?? windowWidth - 16
             const anchorY = noteActionsAnchor?.y ?? 120
-
-            // Position: align the popover’s right edge near the tap.
             const left = Math.min(Math.max(anchorX - MENU_W + 10, 8), windowWidth - MENU_W - 8)
             const top = Math.min(Math.max(anchorY + 10, 8), windowHeight - 160)
-
-            // Tip: place it near the tap X, clamped inside the menu width.
             const tipLeft = Math.min(Math.max(anchorX - left - 10, 14), MENU_W - 26)
 
             return (
               <View style={[styles.actionsPopover, { width: MENU_W, left, top }]}>
-                {/* Tip border (slightly darker) */}
                 <View style={[styles.actionsTipBorder, { left: tipLeft }]} />
-                {/* Tip fill */}
                 <View style={[styles.actionsTip, { left: tipLeft }]} />
-
                 <Text style={styles.actionsCompactTitle} numberOfLines={1}>
                   {(noteActionsTarget?.title ?? '').trim() ? noteActionsTarget?.title : '(Untitled)'}
                 </Text>
-
                 <Pressable
                   style={styles.actionsMenuItem}
                   onPress={() => {
                     if (!noteActionsTarget) return
                     const target = noteActionsTarget
-                    // Pass the original anchor coordinates so the picker points to the note in the list
                     const anchor = { nativeEvent: { pageX: anchorX, pageY: anchorY } }
-                    closeNoteActions()
+                    // Switching mode directly ensures no Modal flicker on web
                     openNotebookPicker(target, anchor)
                   }}
                 >
                   <Ionicons name="book-outline" size={18} color="#374151" />
                   <Text style={styles.actionsMenuItemText}>Add to Notebook</Text>
                 </Pressable>
-
                 <Pressable
                   style={[styles.actionsMenuItemDanger, deletingId && styles.disabled]}
                   disabled={!noteActionsTarget || !!deletingId}
                   onPress={async () => {
                     if (!noteActionsTarget) return
                     const id = noteActionsTarget.id
-                    closeNoteActions()
+                    setPopoverMode(null)
                     await deleteNotebookById(id)
                   }}
                 >
                   <MaterialIcons name="delete-outline" size={18} color="#991b1b" />
                   <Text style={styles.actionsMenuItemDangerText}>{deletingId ? 'Deleting…' : 'Delete note'}</Text>
                 </Pressable>
-
-                <Pressable style={styles.actionsMenuItem} onPress={closeNoteActions}>
+                <Pressable style={styles.actionsMenuItem} onPress={() => setPopoverMode(null)}>
                   <MaterialIcons name="close" size={18} color="#374151" />
                   <Text style={styles.actionsMenuItemText}>Cancel</Text>
                 </Pressable>
               </View>
             )
           })()}
-        </View>
-      </Modal>
 
-      {/* ── Add to Notebook picker (anchored popover) ── */}
-      <Modal
-        transparent
-        visible={notebookPickerVisible}
-        animationType="fade"
-        onRequestClose={() => { setNotebookPickerVisible(false); setNotebookPickerNote(null) }}
-      >
-        <View style={StyleSheet.absoluteFillObject}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => { setNotebookPickerVisible(false); setNotebookPickerNote(null) }} />
-
-          {(() => {
+          {popoverMode === 'picker' && (() => {
             const MENU_W = 240
             const anchorX = notebookPickerAnchor?.x ?? windowWidth - 16
             const anchorY = notebookPickerAnchor?.y ?? 120
-
-            // Position: align the popover’s right edge near the tap.
             const left = Math.min(Math.max(anchorX - MENU_W + 10, 8), windowWidth - MENU_W - 8)
             const top = Math.min(Math.max(anchorY + 10, 8), windowHeight - 320)
-
-            // Tip: place it near the tap X, clamped inside the menu width.
             const tipLeft = Math.min(Math.max(anchorX - left - 10, 14), MENU_W - 26)
 
             return (
               <View style={[styles.nbPickerPopover, { width: MENU_W, left, top }]}>
-                {/* Tip border (slightly darker) */}
                 <View style={[styles.nbPickerTipBorder, { left: tipLeft }]} />
-                {/* Tip fill */}
                 <View style={[styles.nbPickerTip, { left: tipLeft }]} />
-
                 <Text style={styles.nbPickerTitle}>Add to Notebook</Text>
                 {notebookPickerNote ? (
                   <Text style={styles.nbPickerSubtitle} numberOfLines={1}>
                     {(notebookPickerNote.title ?? '').trim() || 'Untitled note'}
                   </Text>
                 ) : null}
-
                 {loadingNotebookOptions ? (
                   <ActivityIndicator size="small" color="#6366F1" style={{ marginVertical: 16 }} />
                 ) : notebookOptions.length === 0 ? (
@@ -1739,7 +1700,7 @@ export default function NotebookScreen() {
 
                 <Pressable
                   style={styles.nbPickerCancelBtn}
-                  onPress={() => { setNotebookPickerVisible(false); setNotebookPickerNote(null) }}
+                  onPress={() => { setPopoverMode(null); setNotebookPickerNote(null) }}
                 >
                   <Text style={styles.nbPickerCancelText}>Cancel</Text>
                 </Pressable>
