@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import type { Session } from '@supabase/supabase-js'
 import { Stack, router } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import Auth, { type AuthMode } from '../components/Auth'
 import { supabase } from '../lib/supabase'
 
@@ -165,7 +165,7 @@ export default function Index() {
       {/* Auth popup */}
       <Modal transparent visible={authVisible} animationType="slide" onRequestClose={() => setAuthVisible(false)}>
         <Pressable style={styles.backdrop} onPress={() => setAuthVisible(false)}>
-          <Pressable style={styles.sheet} onPress={() => {}}>
+          <Pressable style={styles.sheet} onPress={() => { }}>
             <Auth mode={authMode} onSuccess={() => setAuthVisible(false)} />
             <Pressable style={[styles.menuItem, { marginTop: 8 }]} onPress={() => setAuthVisible(false)}>
               <Text style={styles.menuItemText}>Close</Text>
@@ -205,7 +205,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  backdrop: {
+  backdrop: Platform.OS === 'web' ? ({
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    padding: 16,
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+  } as any) : {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
     justifyContent: 'center',

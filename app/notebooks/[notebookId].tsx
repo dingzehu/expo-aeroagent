@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
+import type { Session } from '@supabase/supabase-js'
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
@@ -101,6 +102,14 @@ export default function NotebookDetailScreen() {
   const [loadingNotebookOptions, setLoadingNotebookOptions] = useState(false)
   const [assigningNotebookId, setAssigningNotebookId] = useState<string | null>(null)
 
+  const [session, setSession] = useState<Session | null>(null)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    const { data: sub } = supabase.auth.onAuthStateChange((_, s) => setSession(s))
+    return () => sub.subscription.unsubscribe()
+  }, [])
+
   const accentColor = notebook?.colour_tag || '#6366F1'
 
   const fetchData = useCallback(async () => {
@@ -126,7 +135,39 @@ export default function NotebookDetailScreen() {
   }, [notebookId])
 
   useEffect(() => { fetchData() }, [fetchData])
-  useFocusEffect(useCallback(() => { fetchData() }, [fetchData]))
+
+  // Real-time subscription for notebook detail
+  useEffect(() => {
+    const userId = session?.user?.id
+    if (!userId || !notebookId) return
+
+    console.log('[Realtime] Subscribing to notebook detail:', notebookId)
+    const channel = supabase
+      .channel(`public:notebook_detail:${notebookId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          console.log('[Realtime] Note change in detail:', payload.eventType)
+          fetchData()
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notebooks', filter: `id=eq.${notebookId}` },
+        (payload) => {
+          console.log('[Realtime] Notebook metadata change:', payload.eventType)
+          fetchData()
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] Notebook detail status:', status)
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [session?.user?.id, notebookId, fetchData])
 
   const openNoteActionsAt = useCallback((note: Note, e?: any) => {
     const x = e?.nativeEvent?.pageX ?? windowWidth - 16

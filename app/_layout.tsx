@@ -17,7 +17,7 @@ export default function RootLayout() {
         }}
       />
       <Stack.Screen
-        name="notebooks"
+        name="notebooks/index"
         options={{
           headerTitle: () => <Text style={{ fontSize: 18, fontWeight: "bold" }}>Notebooks</Text>,
         }}

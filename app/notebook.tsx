@@ -9,8 +9,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 // Importing from `lucide-react-native` root can force Metro to resolve *thousands* of icons.
 // On some setups this can fail with missing-module errors (e.g. `chevron-last.js`).
 // Import the single icon we need directly to keep bundling stable and fast.
-// @ts-expect-error - lucide doesn't publish per-icon TS path types; runtime file exists.
-import Sparkles from 'lucide-react-native/dist/esm/icons/sparkles.js'
+import { Sparkles } from 'lucide-react-native'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -584,6 +583,69 @@ export default function NotebookScreen() {
     loadNotebookList()
   }, [loadNotebookList])
 
+  // Real-time subscription for notes
+  useEffect(() => {
+    const userId = session?.user?.id
+    if (!userId) return
+
+    console.log('[Realtime] Subscribing to notes for user:', userId)
+    const channel = supabase
+      .channel('public:notes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          console.log('[Realtime] Note change detected:', payload.eventType)
+          // Always re-fetch the list to ensure we have the latest sorted, complete data
+          loadNotebookList()
+
+          // If the updated note is the one currently loaded, sync current notebook info
+          if (payload.eventType === 'UPDATE') {
+            const updatedNote = payload.new as NotebookListItem
+            if (updatedNote.id === noteId) {
+              setCurrentNotebookId(updatedNote.notebook_id ?? null)
+            }
+          } else if (payload.eventType === 'DELETE') {
+            if (noteId === payload.old.id) {
+              setNoteId(null)
+            }
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] Notes subscription status:', status)
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [session?.user?.id, noteId, loadNotebookList])
+
+  // Real-time subscription for notebooks (to keep allNotebooks in sync)
+  useEffect(() => {
+    const userId = session?.user?.id
+    if (!userId) return
+
+    console.log('[Realtime] Subscribing to notebooks for user:', userId)
+    const channel = supabase
+      .channel('public:notebooks')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notebooks', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          console.log('[Realtime] Notebook change detected:', payload.eventType)
+          loadAllNotebooks()
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] Notebooks subscription status:', status)
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [session?.user?.id, loadAllNotebooks])
+
   // Auto-load a specific note when the page is opened with a noteId param.
   useEffect(() => {
     if (noteIdParam && session?.user?.id) {
@@ -762,8 +824,8 @@ export default function NotebookScreen() {
   // Open picker for the current note being edited
   const openCurrentNoteNotebookPicker = useCallback((e: any) => {
     if (!noteId) return
-    openNotebookPicker({ id: noteId, title } as any, e)
-  }, [noteId, title, openNotebookPicker])
+    openNotebookPicker({ id: noteId, title, notebook_id: currentNotebookId } as any, e)
+  }, [noteId, title, currentNotebookId, openNotebookPicker])
 
   // Assign a note to a notebook (or remove assignment when notebookId is null)
   const handleAssignNotebook = useCallback(async (notebookId: string | null) => {
@@ -1656,7 +1718,7 @@ export default function NotebookScreen() {
                   <ScrollView style={[styles.nbPickerList, { maxHeight: 200 }]} bounces={false}>
                     {notebookOptions.map((nb) => {
                       const accent = nb.colour_tag || '#6366F1'
-                      const isActive = nb.id === currentNotebookId
+                      const isActive = nb.id === notebookPickerNote?.notebook_id
                       const isAssigning = assigningNotebookId === nb.id
                       return (
                         <Pressable
@@ -1679,7 +1741,7 @@ export default function NotebookScreen() {
                     })}
 
                     {/* Remove from notebook option */}
-                    {currentNotebookId ? (
+                    {notebookPickerNote?.notebook_id ? (
                       <Pressable
                         style={styles.nbPickerRemoveItem}
                         onPress={() => handleAssignNotebook(null)}
@@ -1956,13 +2018,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pillActiveGlass: {
-    shadowColor: '#818CF8',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
-    elevation: 8,
-  },
+  pillActiveGlass: Platform.select({
+    web: {
+      boxShadow: '0 6px 14px rgba(129, 140, 248, 0.28)',
+    },
+    default: {
+      shadowColor: '#818CF8',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.28,
+      shadowRadius: 14,
+      elevation: 8,
+    },
+  }),
   pillText: {
     fontSize: 13,
     fontWeight: '900',
@@ -1980,19 +2047,24 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     letterSpacing: 0.6,
   },
-  card: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    // Padding is set dynamically in render (desktop vs mobile).
-    // Shadow (iOS)
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    // Shadow (Android)
-    elevation: 5,
-  },
+  card: Platform.select({
+    web: {
+      flex: 1,
+      backgroundColor: '#fff',
+      borderRadius: 16,
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+    },
+    default: {
+      flex: 1,
+      backgroundColor: '#fff',
+      borderRadius: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 12,
+      elevation: 5,
+    },
+  }),
   // Hybrid Preview: subtle AI mode border so the user knows they're not viewing the raw draft.
   cardAiMode: {
     borderWidth: 1,
@@ -2160,20 +2232,30 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.35)',
     justifyContent: 'flex-start',
   },
-  savedDrawer: {
-    alignSelf: 'flex-start',
-    height: '100%',
-    backgroundColor: '#fff',
-    paddingTop: 18,
-    paddingHorizontal: 0, // content handles horizontal padding
-    paddingBottom: 16,
-    // Add a shadow for separation on web
-    shadowColor: '#000',
-    shadowOffset: { width: 4, height: 0 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 10,
-  },
+  savedDrawer: Platform.select({
+    web: {
+      alignSelf: 'flex-start',
+      height: '100%',
+      backgroundColor: '#fff',
+      paddingTop: 18,
+      paddingHorizontal: 0,
+      paddingBottom: 16,
+      boxShadow: '4px 0 10px rgba(0, 0, 0, 0.1)',
+    },
+    default: {
+      alignSelf: 'flex-start',
+      height: '100%',
+      backgroundColor: '#fff',
+      paddingTop: 18,
+      paddingHorizontal: 0,
+      paddingBottom: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 4, height: 0 },
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+      elevation: 10,
+    },
+  }),
   savedDrawerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2281,21 +2363,30 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   // Anchored “3-dots” popover (smaller, right-aligned, with a tip).
-  actionsPopover: {
-    position: 'absolute',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    // iOS shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    // Android shadow
-    elevation: 5,
-  },
+  actionsPopover: Platform.select({
+    web: {
+      position: 'absolute',
+      backgroundColor: '#fff',
+      borderRadius: 12,
+      padding: 10,
+      borderWidth: 1,
+      borderColor: '#e5e7eb',
+      boxShadow: '0 4px 10px rgba(0, 0, 0, 0.12)',
+    },
+    default: {
+      position: 'absolute',
+      backgroundColor: '#fff',
+      borderRadius: 12,
+      padding: 10,
+      borderWidth: 1,
+      borderColor: '#e5e7eb',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.12,
+      shadowRadius: 10,
+      elevation: 5,
+    },
+  }),
   actionsTipBorder: {
     position: 'absolute',
     top: -9,
@@ -2382,21 +2473,30 @@ const styles = StyleSheet.create({
   },
 
   // ── Notebook picker popover ──────────────────────────────────────────────────
-  nbPickerPopover: {
-    position: 'absolute',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    // iOS shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    // Android shadow
-    elevation: 8,
-  },
+  nbPickerPopover: Platform.select({
+    web: {
+      position: 'absolute',
+      backgroundColor: '#fff',
+      borderRadius: 12,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: '#e5e7eb',
+      boxShadow: '0 4px 10px rgba(0, 0, 0, 0.12)',
+    },
+    default: {
+      position: 'absolute',
+      backgroundColor: '#fff',
+      borderRadius: 12,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: '#e5e7eb',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.12,
+      shadowRadius: 10,
+      elevation: 8,
+    },
+  }),
   nbPickerTipBorder: {
     position: 'absolute',
     top: -9,

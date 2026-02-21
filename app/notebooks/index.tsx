@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
 import type { Session } from '@supabase/supabase-js'
-import { Stack, useFocusEffect, useRouter } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import React, { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
@@ -29,11 +29,11 @@ type Notebook = {
 
 const COLORS = [
   { label: 'Indigo', value: '#6366F1' },
-  { label: 'Pink',   value: '#EC4899' },
-  { label: 'Teal',   value: '#14B8A6' },
-  { label: 'Amber',  value: '#F59E0B' },
-  { label: 'Rose',   value: '#F43F5E' },
-  { label: 'Slate',  value: '#64748B' },
+  { label: 'Pink', value: '#EC4899' },
+  { label: 'Teal', value: '#14B8A6' },
+  { label: 'Amber', value: '#F59E0B' },
+  { label: 'Rose', value: '#F43F5E' },
+  { label: 'Slate', value: '#64748B' },
 ]
 
 // ─── New Notebook Modal ───────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ function NewNotebookModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={modal.overlay} onPress={onClose}>
-        <Pressable style={modal.card} onPress={() => {}}>
+        <Pressable style={modal.card} onPress={() => { }}>
           <Text style={modal.title}>New Notebook</Text>
 
           <Text style={modal.label}>Name</Text>
@@ -225,8 +225,45 @@ export default function NotebooksScreen() {
 
   useEffect(() => { fetchNotebooks() }, [fetchNotebooks])
 
-  // Refresh note counts when returning from a notebook
-  useFocusEffect(useCallback(() => { fetchNotebooks() }, [fetchNotebooks]))
+  // Real-time subscription for notebooks list
+  useEffect(() => {
+    const userId = session?.user?.id
+    if (!userId) return
+
+    console.log('[Realtime] Subscribing to notebooks (list) for user:', userId)
+    const channel = supabase
+      .channel('public:notebooks:list')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notebooks', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          console.log('[Realtime] Notebook list change:', payload.eventType)
+          fetchNotebooks()
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] Notebooks list status:', status)
+      })
+
+    const notesChannel = supabase
+      .channel('public:notes:count')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          console.log('[Realtime] Note count change:', payload.eventType)
+          fetchNotebooks()
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] Notes count status:', status)
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
+      supabase.removeChannel(notesChannel)
+    }
+  }, [session?.user?.id, fetchNotebooks])
 
   const handleDelete = (nb: Notebook) => {
     Alert.alert(
