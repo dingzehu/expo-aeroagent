@@ -164,9 +164,6 @@ export default function NotebookScreen() {
 
   const savedDrawerAnim = useRef(new Animated.Value(0)).current
   const savedDrawerWidth = Math.min(360, Math.round(windowWidth * 0.92))
-  // Web/Desktop sidebar animation:
-  // - 1 = expanded, 0 = collapsed
-  // - We animate WIDTH (layout) so the editor can grow/shrink smoothly.
   const sidebarAnim = useRef(new Animated.Value(1)).current
   const sidebarTargetWidth = Math.min(360, Math.max(280, Math.round(windowWidth * 0.32)))
 
@@ -292,19 +289,7 @@ export default function NotebookScreen() {
   const [autosaveError, setAutosaveError] = useState<string | null>(null)
 
   // Web/Desktop: collapsible sidebar for distraction-free editing.
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
-  // Animate the sidebar open/close on web/desktop.
-  useEffect(() => {
-    if (isNarrow) return
-    Animated.timing(sidebarAnim, {
-      toValue: sidebarCollapsed ? 0 : 1,
-      duration: 240,
-      easing: Easing.out(Easing.cubic),
-      // We animate WIDTH (layout), so native driver must be false.
-      useNativeDriver: false,
-    }).start()
-  }, [isNarrow, sidebarAnim, sidebarCollapsed])
 
   // Copy UX: brief success flash on the button.
   const [copiedFlash, setCopiedFlash] = useState(false)
@@ -1080,20 +1065,16 @@ export default function NotebookScreen() {
   }, [])
 
   const toggleSavedListOrSidebar = useCallback(() => {
-    if (isNarrow) {
-      if (savedDrawerVisible) closeSavedDrawer()
-      else openSavedDrawer()
-      return
-    }
-    setSidebarCollapsed((v: boolean) => !v)
-  }, [closeSavedDrawer, isNarrow, openSavedDrawer, savedDrawerVisible])
+    if (savedDrawerVisible) closeSavedDrawer()
+    else openSavedDrawer()
+  }, [closeSavedDrawer, openSavedDrawer, savedDrawerVisible])
 
   // Header: Studio toolbar (New Note, autosave status, Saved toggle, Account)
   const headerLeft = useMemo(() => {
     const HeaderLeft = () => (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={isNarrow ? 'Saved notes' : 'Toggle sidebar'}
+        accessibilityLabel="Saved notes"
         onPress={toggleSavedListOrSidebar}
         style={{ paddingHorizontal: 12, paddingVertical: 6 }}
       >
@@ -1102,7 +1083,7 @@ export default function NotebookScreen() {
     )
     HeaderLeft.displayName = 'HeaderLeft'
     return HeaderLeft
-  }, [isNarrow, toggleSavedListOrSidebar])
+  }, [toggleSavedListOrSidebar])
 
   const headerRight = useMemo(() => {
     const HeaderRight = () => (
@@ -1162,11 +1143,10 @@ export default function NotebookScreen() {
         }}
       />
 
-      {/* ========================= TOP HALF (Workbench) ========================= */}
       <View style={styles.topHalf}>
         <View style={[styles.workbenchRow, isNarrow && { flexDirection: 'column' }]}>
           {/* LEFT: Title + Raw Input */}
-          <View style={[styles.workbenchLeft, isNarrow && { flex: 1 }]}>
+          <View style={styles.workbenchLeft}>
             <View style={styles.noteTitleRow}>
               <Text style={styles.label}>Note Title</Text>
 
@@ -1238,75 +1218,7 @@ export default function NotebookScreen() {
             </View>
           </View>
 
-          {/* RIGHT: Saved notes list */}
-          {!isNarrow ? (
-            <Animated.View
-              // Web/Desktop UX:
-              // - Keep sidebar mounted
-              // - Animate width (0 <-> sidebarTargetWidth) for smooth slide
-              style={[
-                styles.workbenchRight,
-                {
-                  width: sidebarAnim.interpolate({ inputRange: [0, 1], outputRange: [0, sidebarTargetWidth] }),
-                  opacity: sidebarAnim,
-                },
-              ]}
-              pointerEvents={sidebarCollapsed ? 'none' : 'auto'}
-            >
-              <View style={styles.listHeaderRow}>
-                <Text style={styles.listHeader}>Saved</Text>
-                <TextInput
-                  style={styles.listSearchInput}
-                  placeholder="Search…"
-                  value={savedSearch}
-                  onChangeText={setSavedSearch}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="search"
-                  clearButtonMode="while-editing"
-                />
-              </View>
-              {loadingList ? <Text style={styles.muted}>Loading…</Text> : null}
 
-              <ScrollView style={styles.listScroll} keyboardShouldPersistTaps="handled">
-                {filteredNotebookList.length === 0 ? (
-                  <Text style={styles.muted}>{savedSearch.trim() ? 'No matches' : 'No notes yet'}</Text>
-                ) : (
-                  filteredNotebookList.map((n) => (
-                    <View key={n.id} style={styles.listItem}>
-                      <View style={styles.listItemRow}>
-                        {/* 
-                          IMPORTANT:
-                          - Make ONLY the text area load the note.
-                          - The 3-dots button is separate, so presses don’t conflict.
-                        */}
-                        <Pressable style={styles.listItemTextCol} onPress={() => loadNotebookById(n.id)}>
-                          <Text style={styles.listItemTitle} numberOfLines={1}>
-                            {(n.title ?? '').trim() ? n.title : '(Untitled)'}
-                          </Text>
-                          <Text style={styles.listItemMeta} numberOfLines={1}>
-                            {n.updated_at ? new Date(n.updated_at).toLocaleString() : ''}
-                          </Text>
-                        </Pressable>
-
-                        {/* 3-dots menu button */}
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel="More actions"
-                          hitSlop={10}
-                          style={styles.moreButton}
-                          onPress={(e) => openNoteActionsAt(n, e)}
-                          disabled={deletingId === n.id}
-                        >
-                          <Ionicons name="menu-outline" size={20} color="#444" />
-                        </Pressable>
-                      </View>
-                    </View>
-                  ))
-                )}
-              </ScrollView>
-            </Animated.View>
-          ) : null}
         </View>
       </View>
 
@@ -1440,210 +1352,210 @@ export default function NotebookScreen() {
         </View>
       </View>
 
-      {/* Mobile: slide-out Saved Notes drawer (kept mounted for smoother open) */}
-      {isNarrow ? (
-        <View
-          // When closed, we disable interactions so it behaves like it’s “not there”.
-          pointerEvents={savedDrawerVisible ? 'auto' : 'none'}
-          style={StyleSheet.absoluteFillObject}
+      {/* Slide-out Saved Notes drawer (kept mounted for smoother open) */}
+      <View
+        // When closed, we disable interactions so it behaves like it’s “not there”.
+        pointerEvents={savedDrawerVisible ? 'auto' : 'none'}
+        style={StyleSheet.absoluteFillObject}
+      >
+        {/* Backdrop fade */}
+        <Animated.View style={[styles.drawerBackdrop, { opacity: savedDrawerAnim }]} />
+
+        {/* Tap outside closes */}
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={closeSavedDrawer} />
+
+        {/* Drawer panel slides in from the LEFT */}
+        <Animated.View
+          style={[
+            styles.savedDrawer,
+            {
+              width: savedDrawerWidth,
+              transform: [
+                {
+                  translateX: savedDrawerAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-savedDrawerWidth, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
         >
-          {/* Backdrop fade */}
-          <Animated.View style={[styles.drawerBackdrop, { opacity: savedDrawerAnim }]} />
-
-          {/* Tap outside closes */}
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={closeSavedDrawer} />
-
-          {/* Drawer panel slides in from the LEFT */}
-          <Animated.View
-            style={[
-              styles.savedDrawer,
-              {
-                width: savedDrawerWidth,
-                transform: [
-                  {
-                    translateX: savedDrawerAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [-savedDrawerWidth, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <View style={styles.savedDrawerTopRow}>
-              <Text style={styles.drawerTitle}>Studio Menu</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close menu"
-                hitSlop={10}
-                style={styles.savedDrawerClose}
-                onPress={closeSavedDrawer}
-              >
-                <Ionicons name="close" size={22} color="#111" />
-              </Pressable>
-            </View>
-
-            {/* Prominent Add New Note button inside the drawer */}
+          <View style={styles.savedDrawerTopRow}>
+            <Text style={styles.drawerTitle}>Studio Menu</Text>
             <Pressable
-              style={styles.drawerNewNoteBtn}
-              onPress={() => {
-                handleNewNote()
-                closeSavedDrawer()
-              }}
+              accessibilityRole="button"
+              accessibilityLabel="Close menu"
+              hitSlop={10}
+              style={styles.savedDrawerClose}
+              onPress={closeSavedDrawer}
             >
-              <MaterialIcons name="note-add" size={20} color="#fff" />
-              <Text style={styles.drawerNewNoteBtnText}>New Note</Text>
+              <Ionicons name="close" size={22} color="#111" />
             </Pressable>
+          </View>
 
-            <View style={styles.listHeaderRow}>
-              <TextInput
-                style={styles.listSearchInput}
-                placeholder="Search..."
-                value={savedSearch}
-                onChangeText={setSavedSearch}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-                clearButtonMode="while-editing"
-              />
-            </View>
-            {loadingList ? <Text style={styles.muted}>Loading notes…</Text> : null}
+          {/* Prominent Add New Note button inside the drawer */}
+          <Pressable
+            style={styles.drawerNewNoteBtn}
+            onPress={() => {
+              handleNewNote()
+              closeSavedDrawer()
+            }}
+          >
+            <MaterialIcons name="note-add" size={20} color="#fff" />
+            <Text style={styles.drawerNewNoteBtnText}>New Note</Text>
+          </Pressable>
 
-            <ScrollView style={styles.listScroll} keyboardShouldPersistTaps="handled">
-              {groupedNotes.length === 0 ? (
-                <Text style={styles.muted}>{savedSearch.trim() ? 'No matches' : 'No notes yet'}</Text>
-              ) : (
-                groupedNotes.map((group) => {
-                  const groupId = group.notebookId || '__none__'
-                  const isExpanded = expandedNotebookIds.includes(groupId)
-                  return (
-                    <View key={groupId} style={styles.noteGroup}>
-                      <Pressable
-                        style={styles.noteGroupHeader}
-                        onPress={() => toggleGroupExpand(groupId)}
-                      >
-                        <Ionicons
-                          name={isExpanded ? "chevron-down" : "chevron-forward"}
-                          size={16}
-                          color="#666"
-                        />
-                        <Text style={styles.noteGroupTitle} numberOfLines={1}>
-                          {group.notebookName} ({group.notes.length})
-                        </Text>
-                      </Pressable>
+          <View style={styles.listHeaderRow}>
+            <TextInput
+              style={styles.listSearchInput}
+              placeholder="Search..."
+              value={savedSearch}
+              onChangeText={setSavedSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+          </View>
+          {loadingList ? <Text style={styles.muted}>Loading notes…</Text> : null}
 
-                      {isExpanded && (
-                        <View style={styles.noteGroupContent}>
-                          {group.notes.map((n) => (
-                            <View key={n.id} style={styles.listItem}>
-                              <View style={styles.listItemRow}>
-                                <Pressable
-                                  style={styles.listItemTextCol}
-                                  onPress={() => {
-                                    loadNotebookById(n.id)
-                                    closeSavedDrawer()
-                                  }}
-                                >
-                                  <Text style={styles.listItemTitle} numberOfLines={1}>
-                                    {(n.title ?? '').trim() ? n.title : '(Untitled)'}
-                                  </Text>
-                                  <Text style={styles.listItemMeta} numberOfLines={1}>
-                                    {n.updated_at ? new Date(n.updated_at).toLocaleDateString() : ''}
-                                  </Text>
-                                </Pressable>
+          <ScrollView style={styles.listScroll} keyboardShouldPersistTaps="handled">
+            {groupedNotes.length === 0 ? (
+              <Text style={styles.muted}>{savedSearch.trim() ? 'No matches' : 'No notes yet'}</Text>
+            ) : (
+              groupedNotes.map((group) => {
+                const groupId = group.notebookId || '__none__'
+                const isExpanded = expandedNotebookIds.includes(groupId)
+                return (
+                  <View key={groupId} style={styles.noteGroup}>
+                    <Pressable
+                      style={styles.noteGroupHeader}
+                      onPress={() => toggleGroupExpand(groupId)}
+                    >
+                      <Ionicons
+                        name={isExpanded ? "chevron-down" : "chevron-forward"}
+                        size={16}
+                        color="#666"
+                      />
+                      <Text style={styles.noteGroupTitle} numberOfLines={1}>
+                        {group.notebookName} ({group.notes.length})
+                      </Text>
+                    </Pressable>
 
-                                <Pressable
-                                  accessibilityRole="button"
-                                  accessibilityLabel="More actions"
-                                  hitSlop={10}
-                                  style={styles.moreButton}
-                                  onPress={(e) => openNoteActionsAt(n, e)}
-                                  disabled={deletingId === n.id}
-                                >
-                                  <Ionicons name="menu-outline" size={20} color="#444" />
-                                </Pressable>
-                              </View>
+                    {isExpanded && (
+                      <View style={styles.noteGroupContent}>
+                        {group.notes.map((n) => (
+                          <View key={n.id} style={styles.listItem}>
+                            <View style={styles.listItemRow}>
+                              <Pressable
+                                style={styles.listItemTextCol}
+                                onPress={() => {
+                                  loadNotebookById(n.id)
+                                  closeSavedDrawer()
+                                }}
+                              >
+                                <Text style={styles.listItemTitle} numberOfLines={1}>
+                                  {(n.title ?? '').trim() ? n.title : '(Untitled)'}
+                                </Text>
+                                <Text style={styles.listItemMeta} numberOfLines={1}>
+                                  {n.updated_at ? new Date(n.updated_at).toLocaleDateString() : ''}
+                                </Text>
+                              </Pressable>
+
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel="More actions"
+                                hitSlop={10}
+                                style={styles.moreButton}
+                                onPress={(e) => openNoteActionsAt(n, e)}
+                                disabled={deletingId === n.id}
+                              >
+                                <Ionicons name="menu-outline" size={20} color="#444" />
+                              </Pressable>
                             </View>
-                          ))}
-                        </View>
-                      )}
-                    </View>
-                  )
-                })
-              )}
-            </ScrollView>
-          </Animated.View>
-        </View>
-      ) : null}
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )
+              })
+            )}
+          </ScrollView>
+        </Animated.View>
+      </View>
 
       {/* Full-height slide-in account drawer (same as main page) */}
-      {drawerVisible ? (
-        <Pressable style={styles.drawerBackdrop} onPress={closeDrawer}>
-          <Animated.View
-            style={[
-              styles.drawer,
-              {
-                width: drawerWidth,
-                transform: [
-                  {
-                    translateX: drawerAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [drawerWidth, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <Text style={styles.drawerTitle}>Account</Text>
+      {
+        drawerVisible ? (
+          <Pressable style={styles.drawerBackdrop} onPress={closeDrawer}>
+            <Animated.View
+              style={[
+                styles.drawer,
+                {
+                  width: drawerWidth,
+                  transform: [
+                    {
+                      translateX: drawerAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [drawerWidth, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <Text style={styles.drawerTitle}>Account</Text>
 
-            {session?.user?.email ? (
-              <>
-                <Text style={styles.drawerLabel}>Signed in as</Text>
-                <Text style={styles.drawerEmail}>{session.user.email}</Text>
+              {session?.user?.email ? (
+                <>
+                  <Text style={styles.drawerLabel}>Signed in as</Text>
+                  <Text style={styles.drawerEmail}>{session?.user?.email}</Text>
 
-                <Pressable
-                  style={[styles.drawerButton, { marginTop: 16 }]}
-                  onPress={async () => {
-                    await supabase.auth.signOut()
-                    closeDrawer()
-                  }}
-                >
-                  <Text style={styles.drawerButtonText}>Logout</Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <Text style={styles.drawerHint}>You are not logged in.</Text>
-                <Pressable
-                  style={styles.drawerButton}
-                  onPress={() => {
-                    closeDrawer()
-                    setAuthMode('signIn')
-                    setAuthVisible(true)
-                  }}
-                >
-                  <Text style={styles.drawerButtonText}>Login</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.drawerButton}
-                  onPress={() => {
-                    closeDrawer()
-                    setAuthMode('signUp')
-                    setAuthVisible(true)
-                  }}
-                >
-                  <Text style={styles.drawerButtonText}>Register</Text>
-                </Pressable>
-              </>
-            )}
+                  <Pressable
+                    style={[styles.drawerButton, { marginTop: 16 }]}
+                    onPress={async () => {
+                      await supabase.auth.signOut()
+                      closeDrawer()
+                    }}
+                  >
+                    <Text style={styles.drawerButtonText}>Logout</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.drawerHint}>You are not logged in.</Text>
+                  <Pressable
+                    style={styles.drawerButton}
+                    onPress={() => {
+                      closeDrawer()
+                      setAuthMode('signIn')
+                      setAuthVisible(true)
+                    }}
+                  >
+                    <Text style={styles.drawerButtonText}>Login</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.drawerButton}
+                    onPress={() => {
+                      closeDrawer()
+                      setAuthMode('signUp')
+                      setAuthVisible(true)
+                    }}
+                  >
+                    <Text style={styles.drawerButtonText}>Register</Text>
+                  </Pressable>
+                </>
+              )}
 
-            <Pressable style={[styles.drawerButton, { marginTop: 8 }]} onPress={closeDrawer}>
-              <Text style={styles.drawerButtonText}>Close</Text>
-            </Pressable>
-          </Animated.View>
-        </Pressable>
-      ) : null}
+              <Pressable style={[styles.drawerButton, { marginTop: 8 }]} onPress={closeDrawer}>
+                <Text style={styles.drawerButtonText}>Close</Text>
+              </Pressable>
+            </Animated.View>
+          </Pressable>
+        ) : null
+      }
 
       {/* Auth popup (same as main page) */}
       <Modal transparent visible={authVisible} animationType="slide" onRequestClose={() => setAuthVisible(false)}>
@@ -1731,7 +1643,7 @@ export default function NotebookScreen() {
                 <Text style={styles.nbPickerTitle}>Add to Notebook</Text>
                 {notebookPickerNote ? (
                   <Text style={styles.nbPickerSubtitle} numberOfLines={1}>
-                    {(notebookPickerNote.title ?? '').trim() || 'Untitled note'}
+                    {(notebookPickerNote?.title ?? '').trim() || 'Untitled note'}
                   </Text>
                 ) : null}
                 {loadingNotebookOptions ? (
@@ -1790,7 +1702,7 @@ export default function NotebookScreen() {
           })()}
         </View>
       </Modal>
-    </View>
+    </View >
   )
 }
 
@@ -1857,7 +1769,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   workbenchLeft: {
-    flex: 2,
+    flex: 1,
   },
   workbenchRight: {
     // IMPORTANT:
