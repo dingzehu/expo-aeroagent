@@ -1,30 +1,51 @@
 import { Stack } from "expo-router";
-import { Text } from "react-native";
 
 export default function RootLayout() {
   return (
-    <Stack>
+    <Stack
+      screenOptions={{
+        headerStyle: { backgroundColor: '#fff' },
+        headerShadowVisible: false,
+        headerTitleStyle: { fontSize: 18, fontWeight: 'bold' },
+        headerTitleAlign: 'center',
+        contentStyle: { backgroundColor: '#fff' },
+        animation: 'slide_from_right',
+        headerBackVisible: true,
+      }}
+    >
       <Stack.Screen
         name="index"
         options={{
-          headerTitle: () => <Text style={{ fontSize: 18, fontWeight: "bold" }}>Aero Agent</Text>,
+          headerTitle: "Aero Agent",
+          headerLeft: () => null,
+          headerBackVisible: false,
         }}
       />
       <Stack.Screen
         name="login"
         options={{
-          headerTitle: () => <Text style={{ fontSize: 18, fontWeight: "bold" }}>Login</Text>,
+          headerTitle: "Login",
         }}
       />
       <Stack.Screen
         name="notebooks/index"
         options={{
-          headerTitle: () => <Text style={{ fontSize: 18, fontWeight: "bold" }}>Notebooks</Text>,
+          headerTitle: "Notebooks",
         }}
       />
       <Stack.Screen
         name="notebooks/[notebookId]"
-        options={{ headerBackTitle: 'Notebooks' }}
+        options={{
+          headerTitle: "Notebook",
+          headerBackTitle: 'Back',
+        }}
+      />
+      <Stack.Screen
+        name="notes"
+        options={{
+          headerTitle: "Studio",
+          headerBackVisible: false,
+        }}
       />
     </Stack>
   )

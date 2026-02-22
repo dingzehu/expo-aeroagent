@@ -247,12 +247,12 @@ export default function NotebookDetailScreen() {
   const openEditor = (note?: Note) => {
     if (note) {
       router.push({
-        pathname: '/notebook',
+        pathname: '/notes',
         params: { notebookId, noteId: note.id } as any
       })
     } else {
       router.push({
-        pathname: '/notebook',
+        pathname: '/notes',
         params: { notebookId } as any
       })
     }
@@ -262,7 +262,13 @@ export default function NotebookDetailScreen() {
     <View style={s.screen}>
       <Stack.Screen
         options={{
-          title: notebook?.name ?? 'Notebook',
+          headerTitle: () => (
+            <Pressable onPress={() => router.replace('/')} style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#111' }}>Aero Agent</Text>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#999', marginHorizontal: 8 }}>/</Text>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: accentColor }}>{notebook?.name ?? 'Notebook'}</Text>
+            </Pressable>
+          ),
           headerTintColor: accentColor,
           headerRight: () => (
             <Pressable onPress={() => openEditor()} style={{ paddingHorizontal: 14, paddingVertical: 6 }}>
@@ -417,7 +423,7 @@ export default function NotebookDetailScreen() {
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#F9FAFB' },
+  screen: { flex: 1, backgroundColor: '#fff' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   emptyTitle: { marginTop: 16, fontSize: 17, fontWeight: '700', color: '#888', textAlign: 'center' },
   emptySubtitle: { marginTop: 6, fontSize: 14, color: '#aaa', textAlign: 'center', maxWidth: 260 },

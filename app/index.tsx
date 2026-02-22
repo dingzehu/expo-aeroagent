@@ -81,7 +81,7 @@ export default function Index() {
         </Pressable>
         <Pressable
           style={[styles.button, { flex: 1, marginLeft: 6 }]}
-          onPress={() => router.push('/notebook')}
+          onPress={() => router.push('/notes')}
         >
           <Text style={styles.text}>Notes</Text>
         </Pressable>
@@ -180,6 +180,7 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,

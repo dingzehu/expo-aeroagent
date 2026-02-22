@@ -279,7 +279,7 @@ export default function NotebookScreen() {
   const [aiLastRun, setAiLastRun] = useState<{ persona: PersonaId; at: number } | null>(null)
 
   // Storage for all notebooks (for grouping in the drawer)
-  type NotebookData = { id: string; name: string }
+  type NotebookData = { id: string; name: string; colour_tag: string | null }
   const [allNotebooks, setAllNotebooks] = useState<NotebookData[]>([])
   const [expandedNotebookIds, setExpandedNotebookIds] = useState<string[]>(['__none__'])
 
@@ -342,21 +342,21 @@ export default function NotebookScreen() {
   }, [notebookList, savedSearch])
 
   const groupedNotes = useMemo(() => {
-    const groups: Record<string, { notebookId: string | null; notebookName: string; notes: NotebookListItem[] }> = {}
+    const groups: Record<string, { notebookId: string | null; notebookName: string; colour: string | null; notes: NotebookListItem[] }> = {}
 
     // Always provide a bucket for non-notebook notes
-    groups['__none__'] = { notebookId: null, notebookName: 'General Notes', notes: [] }
+    groups['__none__'] = { notebookId: null, notebookName: 'General Notes', colour: null, notes: [] }
 
     // Prepare buckets for each notebook the user has
     allNotebooks.forEach(nb => {
-      groups[nb.id] = { notebookId: nb.id, notebookName: nb.name, notes: [] }
+      groups[nb.id] = { notebookId: nb.id, notebookName: nb.name, colour: nb.colour_tag, notes: [] }
     })
 
     // Sort notes into buckets
     filteredNotebookList.forEach(note => {
       const nid = note.notebook_id || '__none__'
       if (!groups[nid]) {
-        groups[nid] = { notebookId: nid, notebookName: 'Other', notes: [] }
+        groups[nid] = { notebookId: nid, notebookName: 'Other', colour: null, notes: [] }
       }
       groups[nid].notes.push(note)
     })
@@ -374,8 +374,8 @@ export default function NotebookScreen() {
   const loadAllNotebooks = useCallback(async () => {
     const userId = session?.user?.id
     if (!userId) return
-    const { data } = await supabase.from('notebooks').select('id, name').eq('user_id', userId)
-    if (data) setAllNotebooks(data)
+    const { data } = await supabase.from('notebooks').select('id, name, colour_tag').eq('user_id', userId)
+    if (data) setAllNotebooks(data as NotebookData[])
   }, [session?.user?.id])
 
   useEffect(() => { loadAllNotebooks() }, [loadAllNotebooks])
@@ -999,7 +999,7 @@ export default function NotebookScreen() {
     }
 
     clearEditor()
-    router.replace(`/notebook?new=${Date.now()}${currentNotebookId ? `&notebookId=${currentNotebookId}` : ''}`)
+    router.replace(`/notes?new=${Date.now()}${currentNotebookId ? `&notebookId=${currentNotebookId}` : ''}`)
   }, [clearEditor, flushAutosave, router])
 
   const renderAutosaveIndicator = useCallback(() => {
@@ -1134,18 +1134,31 @@ export default function NotebookScreen() {
   // Header: Studio toolbar (New Note, autosave status, Saved toggle, Account)
   const headerLeft = useMemo(() => {
     const HeaderLeft = () => (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Saved notes"
-        onPress={toggleSavedListOrSidebar}
-        style={{ paddingHorizontal: 12, paddingVertical: 6 }}
-      >
-        <MaterialIcons name="menu" size={24} color="#111" />
-      </Pressable>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          onPress={() => {
+            if (router.canGoBack()) router.back()
+            else router.replace('/')
+          }}
+          style={{ paddingHorizontal: 10, paddingVertical: 6 }}
+        >
+          <Ionicons name="arrow-back" size={24} color="#111" />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Saved notes"
+          onPress={toggleSavedListOrSidebar}
+          style={{ paddingHorizontal: 10, paddingVertical: 6 }}
+        >
+          <MaterialIcons name="menu" size={24} color="#111" />
+        </Pressable>
+      </View>
     )
     HeaderLeft.displayName = 'HeaderLeft'
     return HeaderLeft
-  }, [toggleSavedListOrSidebar])
+  }, [router, toggleSavedListOrSidebar])
 
   const headerRight = useMemo(() => {
     const HeaderRight = () => (
@@ -1181,7 +1194,10 @@ export default function NotebookScreen() {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Back to Aero Agent"
-        onPress={() => router.replace('/')}
+        onPress={() => {
+          if (router.canGoBack()) router.back()
+          else router.replace('/')
+        }}
         style={styles.headerTitleButton}
       >
         <Text style={styles.headerTitleText}>Aero Agent</Text>
@@ -1202,6 +1218,7 @@ export default function NotebookScreen() {
           headerRight,
           headerTitle,
           headerTitleAlign: 'center',
+          headerBackVisible: false,
         }}
       />
 
@@ -1491,19 +1508,52 @@ export default function NotebookScreen() {
                 const isExpanded = expandedNotebookIds.includes(groupId)
                 return (
                   <View key={groupId} style={styles.noteGroup}>
-                    <Pressable
-                      style={styles.noteGroupHeader}
-                      onPress={() => toggleGroupExpand(groupId)}
-                    >
-                      <Ionicons
-                        name={isExpanded ? "chevron-down" : "chevron-forward"}
-                        size={16}
-                        color="#666"
-                      />
-                      <Text style={styles.noteGroupTitle} numberOfLines={1}>
-                        {group.notebookName} ({group.notes.length})
-                      </Text>
-                    </Pressable>
+                    <View style={[styles.noteGroupHeader, groupId === currentNotebookId && { backgroundColor: '#EEF2FF', borderBottomColor: '#E0E7FF' }]}>
+                      <Pressable
+                        onPress={() => toggleGroupExpand(groupId)}
+                        hitSlop={8}
+                        style={{ paddingRight: 4 }}
+                      >
+                        <Ionicons
+                          name={isExpanded ? "chevron-down" : "chevron-forward"}
+                          size={16}
+                          color={groupId === currentNotebookId ? "#4F46E5" : "#666"}
+                        />
+                      </Pressable>
+
+                      <Pressable
+                        style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
+                        onPress={() => {
+                          if (groupId !== '__none__') {
+                            router.push(`/notebooks/${groupId}`)
+                            closeSavedDrawer()
+                          } else {
+                            toggleGroupExpand(groupId)
+                          }
+                        }}
+                      >
+                        {group.colour && (
+                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: group.colour, marginRight: 8 }} />
+                        )}
+                        <Text
+                          style={[
+                            styles.noteGroupTitle,
+                            groupId === currentNotebookId && { color: '#4F46E5', fontWeight: '900' }
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {group.notebookName} ({group.notes.length})
+                        </Text>
+                        {groupId !== '__none__' && (
+                          <Ionicons
+                            name="chevron-forward-outline"
+                            size={14}
+                            color={groupId === currentNotebookId ? "#4F46E5" : "#9CA3AF"}
+                            style={{ opacity: 0.8 }}
+                          />
+                        )}
+                      </Pressable>
+                    </View>
 
                     {isExpanded && (
                       <View style={styles.noteGroupContent}>

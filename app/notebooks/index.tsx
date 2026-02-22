@@ -287,7 +287,13 @@ export default function NotebooksScreen() {
     <View style={s.screen}>
       <Stack.Screen
         options={{
-          title: 'Notebooks',
+          headerTitle: () => (
+            <Pressable onPress={() => router.replace('/')} style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#111' }}>Aero Agent</Text>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#999', marginHorizontal: 8 }}>/</Text>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#111' }}>Library</Text>
+            </Pressable>
+          ),
           headerRight: () => (
             <Pressable onPress={() => setShowNew(true)} style={{ paddingHorizontal: 14, paddingVertical: 6 }}>
               <Ionicons name="add" size={26} color="#6366F1" />
@@ -343,7 +349,7 @@ export default function NotebooksScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#F9FAFB' },
+  screen: { flex: 1, backgroundColor: '#fff' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   emptyTitle: { marginTop: 16, fontSize: 17, fontWeight: '700', color: '#888', textAlign: 'center' },
   emptySubtitle: { marginTop: 6, fontSize: 14, color: '#aaa', textAlign: 'center', maxWidth: 260 },
