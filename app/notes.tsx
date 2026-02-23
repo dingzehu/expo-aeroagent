@@ -1523,14 +1523,7 @@ export default function NotebookScreen() {
 
                       <Pressable
                         style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
-                        onPress={() => {
-                          if (groupId !== '__none__') {
-                            router.push(`/notebooks/${groupId}`)
-                            closeSavedDrawer()
-                          } else {
-                            toggleGroupExpand(groupId)
-                          }
-                        }}
+                        onPress={() => toggleGroupExpand(groupId)}
                       >
                         {group.colour && (
                           <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: group.colour, marginRight: 8 }} />
@@ -1544,14 +1537,6 @@ export default function NotebookScreen() {
                         >
                           {group.notebookName} ({group.notes.length})
                         </Text>
-                        {groupId !== '__none__' && (
-                          <Ionicons
-                            name="chevron-forward-outline"
-                            size={14}
-                            color={groupId === currentNotebookId ? "#4F46E5" : "#9CA3AF"}
-                            style={{ opacity: 0.8 }}
-                          />
-                        )}
                       </Pressable>
                     </View>
 

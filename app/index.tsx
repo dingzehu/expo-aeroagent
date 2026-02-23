@@ -7,6 +7,8 @@ import Auth, { type AuthMode } from '../components/Auth'
 import { supabase } from '../lib/supabase'
 
 
+import ProfileHeader from '../components/ProfileHeader'
+
 export default function Index() {
   const [drawerVisible, setDrawerVisible] = useState(false)
   const [authVisible, setAuthVisible] = useState(false)
@@ -66,32 +68,39 @@ export default function Index() {
     <View style={styles.container}>
       <Stack.Screen options={{ headerRight }} />
 
-      {/* If logged out, show Auth inline as the “entry gate” */}
-      {!session?.user ? (
-        <View style={{ width: '100%', maxWidth: 420 }}>
-          <Auth mode="signIn" />
+      {session?.user ? (
+        <ProfileHeader email={session.user.email} />
+      ) : (
+        <View style={{ height: '33.33%', justifyContent: 'center', alignItems: 'center' }}>
+          <Ionicons name="airplane-outline" size={64} color="#4F46E5" />
         </View>
-      ) : null}
-      <View style={styles.buttonsContainer}>
-        <Pressable
-          style={[styles.button, { flex: 1, marginRight: 6 }]}
-          onPress={() => router.push('/notebooks')}
-        >
-          <Text style={styles.text}>Notebooks</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.button, { flex: 1, marginLeft: 6 }]}
-          onPress={() => router.push('/notes')}
-        >
-          <Text style={styles.text}>Notes</Text>
-        </Pressable>
+      )}
+
+      <View style={styles.mainContent}>
+        {/* If logged out, show Auth inline as the “entry gate” */}
+        {!session?.user ? (
+          <View style={{ width: '100%', maxWidth: 420, marginBottom: 24 }}>
+            <Auth mode="signIn" />
+          </View>
+        ) : (
+          <View style={styles.actionsWrapper}>
+            <View style={styles.buttonsContainer}>
+              <Pressable
+                style={styles.button}
+                onPress={() => router.push('/thoughts')}
+              >
+                <Text style={styles.text}>Thoughts</Text>
+              </Pressable>
+            </View>
+            <Pressable
+              style={styles.button}
+              onPress={() => router.push('/taskManager')}
+            >
+              <Text style={styles.text}>Open Task Manager</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
-      <Pressable
-        style={styles.button}
-        onPress={() => router.push('/taskManager')}
-      >
-        <Text style={styles.text}>Open Task Manager</Text>
-      </Pressable>
 
       {/* Full-height slide-in account drawer */}
       {drawerVisible ? (
@@ -181,9 +190,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+    padding: 0,
+  },
+  mainContent: {
+    flex: 2,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: 24,
+  },
+  actionsWrapper: {
+    width: '100%',
+    alignItems: 'center',
+    maxWidth: 420,
   },
   button: {
     backgroundColor: '#4630EB',

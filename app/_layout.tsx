@@ -28,23 +28,16 @@ export default function RootLayout() {
         }}
       />
       <Stack.Screen
-        name="notebooks/index"
-        options={{
-          headerTitle: "Notebooks",
-        }}
-      />
-      <Stack.Screen
-        name="notebooks/[notebookId]"
-        options={{
-          headerTitle: "Notebook",
-          headerBackTitle: 'Back',
-        }}
-      />
-      <Stack.Screen
         name="notes"
         options={{
           headerTitle: "Studio",
           headerBackVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name="thoughts"
+        options={{
+          headerTitle: "Thoughts",
         }}
       />
     </Stack>
