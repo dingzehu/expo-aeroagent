@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
     Alert,
+    Animated,
     Modal,
     Pressable,
     ScrollView,
@@ -13,6 +14,7 @@ import {
     useWindowDimensions,
     View
 } from 'react-native'
+
 import ProfileHeader from '../components/ProfileHeader'
 import { supabase } from '../lib/supabase'
 
@@ -115,6 +117,33 @@ export default function ThoughtsScreen() {
     const [noteActionsTarget, setNoteActionsTarget] = useState<Note | null>(null)
     const [assigningNotebookId, setAssigningNotebookId] = useState<string | null>(null)
 
+    // Sliding animation
+    const slideAnim = useRef(new Animated.Value(0)).current // 0 = actions, 1 = picker
+
+    const handleSetPopoverMode = useCallback((mode: 'actions' | 'picker' | null) => {
+        if (mode === 'picker') {
+            setPopoverMode(mode)
+            Animated.spring(slideAnim, {
+                toValue: 1,
+                useNativeDriver: true,
+                friction: 8,
+                tension: 60
+            }).start()
+        } else if (mode === 'actions') {
+            Animated.spring(slideAnim, {
+                toValue: 0,
+                useNativeDriver: true,
+                friction: 8,
+                tension: 60
+            }).start(() => {
+                setPopoverMode(mode)
+            })
+        } else {
+            setPopoverMode(null)
+            slideAnim.setValue(0)
+        }
+    }, [slideAnim])
+
     useEffect(() => {
         supabase.auth.getSession().then(({ data }) => setSession(data.session))
         const { data: sub } = supabase.auth.onAuthStateChange((_, s) => setSession(s))
@@ -214,6 +243,7 @@ export default function ThoughtsScreen() {
     const openNoteActionsAt = (note: Note, anchor: { x: number, y: number }) => {
         setNoteActionsTarget(note)
         setNoteActionsAnchor(anchor)
+        slideAnim.setValue(0) // Reset to actions mode silently
         setPopoverMode('actions')
     }
 
@@ -360,14 +390,15 @@ export default function ThoughtsScreen() {
                 transparent
                 visible={!!popoverMode}
                 animationType="fade"
-                onRequestClose={() => setPopoverMode(null)}
+                onRequestClose={() => handleSetPopoverMode(null)}
             >
                 <View style={StyleSheet.absoluteFillObject}>
-                    <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setPopoverMode(null)} />
+                    <Pressable style={StyleSheet.absoluteFillObject} onPress={() => handleSetPopoverMode(null)} />
 
-                    {popoverMode === 'actions' && (() => {
+                    {!!popoverMode && (() => {
                         const MENU_W = 240
-                        const MENU_H = 160
+                        // Use the taller height to ensure we don't clamp differently between modes
+                        const MENU_H = popoverMode === 'picker' ? 400 : 160
                         const anchorX = noteActionsAnchor?.x ?? windowWidth - 20
                         const anchorY = noteActionsAnchor?.y ?? 120
 
@@ -376,84 +407,90 @@ export default function ThoughtsScreen() {
                         const top = Math.min(Math.max(anchorY - MENU_H / 2, 40), windowHeight - MENU_H - 80)
 
                         // Tip calculation: point exactly at anchorY relative to popover top
-                        const tipTop = Math.min(Math.max(anchorY - top - 7, 10), MENU_H - 24)
+                        const tipTop = Math.min(Math.max(anchorY - top - 7, 10), Math.max(MENU_H - 24, 10))
 
+                        // We render BOTH modes inside a hidden overflow container and slide them
                         return (
-                            <View style={[styles.popover, { width: MENU_W, left, top }]}>
+                            <View style={[styles.popoverWrapper, { width: MENU_W, left, top }]}>
+                                {/* Shared Tip */}
                                 <View style={[styles.popoverTipBorder, { right: -8, top: tipTop }]} />
                                 <View style={[styles.popoverTip, { right: -7, top: tipTop }]} />
 
-                                <Text style={styles.popoverTitle} numberOfLines={1}>
-                                    {noteActionsTarget?.title || '(Untitled)'}
-                                </Text>
-                                <Pressable
-                                    style={styles.popoverItem}
-                                    onPress={() => setPopoverMode('picker')}
-                                >
-                                    <Ionicons name="folder-outline" size={18} color="#4F46E5" />
-                                    <Text style={styles.popoverItemText}>Add to Notebook</Text>
-                                </Pressable>
-                                <Pressable
-                                    style={[styles.popoverItem, { borderTopWidth: 1, borderTopColor: '#f1f1f1' }]}
-                                    onPress={handleDelete}
-                                >
-                                    <Ionicons name="trash-outline" size={18} color="#EF4444" />
-                                    <Text style={[styles.popoverItemText, { color: '#EF4444' }]}>Delete Thought</Text>
-                                </Pressable>
-                            </View>
-                        )
-                    })()}
+                                <View style={styles.popoverOverflowHidden}>
+                                    <Animated.View style={[
+                                        styles.popoverSlidingContainer,
+                                        {
+                                            width: MENU_W * 2,
+                                            transform: [{
+                                                translateX: slideAnim.interpolate({
+                                                    inputRange: [0, 1],
+                                                    outputRange: [0, -MENU_W]
+                                                })
+                                            }]
+                                        }
+                                    ]}>
 
-                    {popoverMode === 'picker' && (() => {
-                        const MENU_W = 240
-                        const MENU_H = 400
-                        const anchorX = noteActionsAnchor?.x ?? windowWidth - 20
-                        const anchorY = noteActionsAnchor?.y ?? 120
-
-                        const left = Math.max(anchorX - MENU_W - 15, 8)
-                        // Buffer for bottom nav (80px) and top status bar (40px)
-                        const top = Math.min(Math.max(anchorY - MENU_H / 2, 40), windowHeight - MENU_H - 80)
-
-                        const tipTop = Math.min(Math.max(anchorY - top - 7, 10), MENU_H - 24)
-
-                        return (
-                            <View style={[styles.popover, { width: MENU_W, left, top, paddingBottom: 8 }]}>
-                                <View style={[styles.popoverTipBorder, { right: -8, top: tipTop }]} />
-                                <View style={[styles.popoverTip, { right: -7, top: tipTop }]} />
-                                <View style={styles.popoverHeader}>
-                                    <Pressable onPress={() => setPopoverMode('actions')} style={{ padding: 4 }}>
-                                        <Ionicons name="arrow-back" size={20} color="#666" />
-                                    </Pressable>
-                                    <Text style={styles.popoverTitle}>Choose Notebook</Text>
-                                </View>
-                                <ScrollView style={{ maxHeight: 300 }}>
-                                    <Pressable
-                                        style={styles.popoverItem}
-                                        onPress={() => handleAssignNotebook(null)}
-                                        disabled={!!assigningNotebookId}
-                                    >
-                                        <View style={[styles.colorDot, { backgroundColor: '#e0e0e0', marginHorizontal: 0, marginRight: 8 }]} />
-                                        <Text style={[styles.popoverItemText, noteActionsTarget?.notebook_id === null && { fontWeight: '700', color: '#4F46E5' }]}>
-                                            General Notes
-                                        </Text>
-                                        {assigningNotebookId === '__remove__' && <ActivityIndicator size="small" color="#4F46E5" style={{ marginLeft: 'auto' }} />}
-                                    </Pressable>
-
-                                    {notebooks.map(nb => (
-                                        <Pressable
-                                            key={nb.id}
-                                            style={styles.popoverItem}
-                                            onPress={() => handleAssignNotebook(nb.id)}
-                                            disabled={!!assigningNotebookId}
-                                        >
-                                            <View style={[styles.colorDot, { backgroundColor: nb.colour_tag || '#e0e0e0', marginHorizontal: 0, marginRight: 8 }]} />
-                                            <Text style={[styles.popoverItemText, noteActionsTarget?.notebook_id === nb.id && { fontWeight: '700', color: '#4F46E5' }]}>
-                                                {nb.name}
+                                        {/* --- Actions Panel --- */}
+                                        <View style={{ width: MENU_W, height: popoverMode === 'actions' ? undefined : MENU_H }}>
+                                            <Text style={styles.popoverTitle} numberOfLines={1}>
+                                                {noteActionsTarget?.title || '(Untitled)'}
                                             </Text>
-                                            {assigningNotebookId === nb.id && <ActivityIndicator size="small" color="#4F46E5" style={{ marginLeft: 'auto' }} />}
-                                        </Pressable>
-                                    ))}
-                                </ScrollView>
+                                            <Pressable
+                                                style={styles.popoverItem}
+                                                onPress={() => handleSetPopoverMode('picker')}
+                                            >
+                                                <Ionicons name="folder-outline" size={18} color="#4F46E5" />
+                                                <Text style={styles.popoverItemText}>Add to Notebook</Text>
+                                            </Pressable>
+                                            <Pressable
+                                                style={[styles.popoverItem, { borderTopWidth: 1, borderTopColor: '#f1f1f1' }]}
+                                                onPress={handleDelete}
+                                            >
+                                                <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                                                <Text style={[styles.popoverItemText, { color: '#EF4444' }]}>Delete Thought</Text>
+                                            </Pressable>
+                                        </View>
+
+                                        {/* --- Picker Panel --- */}
+                                        <View style={{ width: MENU_W, height: popoverMode === 'picker' ? undefined : MENU_H, paddingBottom: 8 }}>
+                                            <View style={styles.popoverHeader}>
+                                                <Pressable onPress={() => handleSetPopoverMode('actions')} style={{ padding: 4 }}>
+                                                    <Ionicons name="arrow-back" size={20} color="#666" />
+                                                </Pressable>
+                                                <Text style={styles.popoverTitle}>Choose Notebook</Text>
+                                            </View>
+                                            <ScrollView style={{ maxHeight: 300 }}>
+                                                <Pressable
+                                                    style={styles.popoverItem}
+                                                    onPress={() => handleAssignNotebook(null)}
+                                                    disabled={!!assigningNotebookId}
+                                                >
+                                                    <View style={[styles.colorDot, { backgroundColor: '#e0e0e0', marginHorizontal: 0, marginRight: 8 }]} />
+                                                    <Text style={[styles.popoverItemText, noteActionsTarget?.notebook_id === null && { fontWeight: '700', color: '#4F46E5' }]}>
+                                                        General Notes
+                                                    </Text>
+                                                    {assigningNotebookId === '__remove__' && <ActivityIndicator size="small" color="#4F46E5" style={{ marginLeft: 'auto' }} />}
+                                                </Pressable>
+
+                                                {notebooks.map(nb => (
+                                                    <Pressable
+                                                        key={nb.id}
+                                                        style={styles.popoverItem}
+                                                        onPress={() => handleAssignNotebook(nb.id)}
+                                                        disabled={!!assigningNotebookId}
+                                                    >
+                                                        <View style={[styles.colorDot, { backgroundColor: nb.colour_tag || '#e0e0e0', marginHorizontal: 0, marginRight: 8 }]} />
+                                                        <Text style={[styles.popoverItemText, noteActionsTarget?.notebook_id === nb.id && { fontWeight: '700', color: '#4F46E5' }]}>
+                                                            {nb.name}
+                                                        </Text>
+                                                        {assigningNotebookId === nb.id && <ActivityIndicator size="small" color="#4F46E5" style={{ marginLeft: 'auto' }} />}
+                                                    </Pressable>
+                                                ))}
+                                            </ScrollView>
+                                        </View>
+
+                                    </Animated.View>
+                                </View>
                             </View>
                         )
                     })()}
@@ -513,11 +550,10 @@ const styles = StyleSheet.create({
         paddingLeft: 20,
     },
     // Popover Styles
-    popover: {
+    popoverWrapper: {
         position: 'absolute',
         backgroundColor: '#fff',
         borderRadius: 12,
-        paddingVertical: 4,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.15,
@@ -525,6 +561,14 @@ const styles = StyleSheet.create({
         elevation: 8,
         borderWidth: 1,
         borderColor: '#eee',
+    },
+    popoverOverflowHidden: {
+        overflow: 'hidden',
+        borderRadius: 12,
+        paddingVertical: 4,
+    },
+    popoverSlidingContainer: {
+        flexDirection: 'row',
     },
     popoverTitle: {
         paddingHorizontal: 16,
