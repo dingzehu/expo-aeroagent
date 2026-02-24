@@ -40,6 +40,12 @@ export default function RootLayout() {
           headerTitle: "Thoughts",
         }}
       />
+      <Stack.Screen
+        name="profile"
+        options={{
+          headerTitle: "Edit Profile",
+        }}
+      />
     </Stack>
   )
 }

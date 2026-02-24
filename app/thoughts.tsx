@@ -1,22 +1,29 @@
 import { Ionicons } from '@expo/vector-icons'
 import type { Session } from '@supabase/supabase-js'
-import { Stack, useRouter } from 'expo-router'
+import { Stack, useFocusEffect, useRouter } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
     Alert,
     Animated,
     Modal,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
     Text,
     useWindowDimensions,
-    View
+    View,
 } from 'react-native'
 
-import ProfileHeader from '../components/ProfileHeader'
-import { supabase } from '../lib/supabase'
+// Without path alias
+//import ProfileHeader from '../components/ProfileHeader'
+//import { supabase } from '../lib/supabase'
+
+// With path alias
+import { GradientHeaderBg } from '@/components/GradientHeaderBg'
+import ProfileHeader from '@/components/ProfileHeader'
+import { supabase } from '@/lib/supabase'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -106,49 +113,100 @@ export default function ThoughtsScreen() {
     const router = useRouter()
     const { width: windowWidth, height: windowHeight } = useWindowDimensions()
     const [session, setSession] = useState<Session | null>(null)
+    const [displayName, setDisplayName] = useState<string | null>(null)
     const [notes, setNotes] = useState<Note[]>([])
     const [notebooks, setNotebooks] = useState<Notebook[]>([])
     const [loading, setLoading] = useState(true)
     const [expandedNotebookIds, setExpandedNotebookIds] = useState<string[]>(['__none__'])
-
-    // Popover state
-    const [popoverMode, setPopoverMode] = useState<'actions' | 'picker' | null>(null)
     const [noteActionsAnchor, setNoteActionsAnchor] = useState<{ x: number, y: number } | null>(null)
     const [noteActionsTarget, setNoteActionsTarget] = useState<Note | null>(null)
     const [assigningNotebookId, setAssigningNotebookId] = useState<string | null>(null)
 
-    // Sliding animation
+    // Popover state
+    const [popoverMode, setPopoverMode] = useState<'actions' | 'picker' | null>(null)
+
+    // Sliding and scaling animation
     const slideAnim = useRef(new Animated.Value(0)).current // 0 = actions, 1 = picker
+    const heightAnim = useRef(new Animated.Value(130)).current
+    const topAnim = useRef(new Animated.Value(0)).current
+    const tipTopAnim = useRef(new Animated.Value(0)).current
+
+    const getPopoverMetrics = useCallback((mode: 'actions' | 'picker', anchorY: number, nbsLength: number, winHeight: number) => {
+        const actionsH = 130
+        const pickerH = Math.min(97 + nbsLength * 44, 400)
+        const MENU_H = mode === 'picker' ? pickerH : actionsH
+
+        const top = Math.min(Math.max(anchorY - MENU_H / 2, 40), winHeight - MENU_H - 80)
+        const tipTop = Math.min(Math.max(anchorY - top - 7, 10), Math.max(MENU_H - 24, 10))
+
+        return { height: MENU_H, top, tipTop }
+    }, [])
 
     const handleSetPopoverMode = useCallback((mode: 'actions' | 'picker' | null) => {
-        if (mode === 'picker') {
-            setPopoverMode(mode)
-            Animated.spring(slideAnim, {
-                toValue: 1,
-                useNativeDriver: true,
-                friction: 8,
-                tension: 60
-            }).start()
-        } else if (mode === 'actions') {
-            Animated.spring(slideAnim, {
-                toValue: 0,
-                useNativeDriver: true,
-                friction: 8,
-                tension: 60
-            }).start(() => {
-                setPopoverMode(mode)
-            })
-        } else {
+        if (!mode) {
             setPopoverMode(null)
             slideAnim.setValue(0)
+            return
         }
-    }, [slideAnim])
+
+        const metrics = getPopoverMetrics(mode, noteActionsAnchor?.y ?? 120, notebooks.length, windowHeight)
+
+        if (mode === 'picker') {
+            setPopoverMode(mode)
+            Animated.parallel([
+                Animated.spring(slideAnim, { toValue: 1, useNativeDriver: true, friction: 8, tension: 60 }),
+                Animated.spring(heightAnim, { toValue: metrics.height, useNativeDriver: false, friction: 8, tension: 60 }),
+                Animated.spring(topAnim, { toValue: metrics.top, useNativeDriver: false, friction: 8, tension: 60 }),
+                Animated.spring(tipTopAnim, { toValue: metrics.tipTop, useNativeDriver: false, friction: 8, tension: 60 })
+            ]).start()
+        } else if (mode === 'actions') {
+            Animated.parallel([
+                Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 }),
+                Animated.spring(heightAnim, { toValue: metrics.height, useNativeDriver: false, friction: 8, tension: 60 }),
+                Animated.spring(topAnim, { toValue: metrics.top, useNativeDriver: false, friction: 8, tension: 60 }),
+                Animated.spring(tipTopAnim, { toValue: metrics.tipTop, useNativeDriver: false, friction: 8, tension: 60 })
+            ]).start(() => {
+                setPopoverMode(mode)
+            })
+        }
+    }, [slideAnim, heightAnim, topAnim, tipTopAnim, noteActionsAnchor, notebooks.length, windowHeight, getPopoverMetrics])
+
+
+    // Fetch display name from profiles table
+    const fetchDisplayName = useCallback(async (userId: string) => {
+        const { data } = await supabase
+            .from('profiles')
+            .select('display_name')
+            .eq('id', userId)
+            .single()
+        if (data?.display_name !== undefined) setDisplayName(data.display_name)
+    }, [])
 
     useEffect(() => {
-        supabase.auth.getSession().then(({ data }) => setSession(data.session))
-        const { data: sub } = supabase.auth.onAuthStateChange((_, s) => setSession(s))
+        supabase.auth.getSession().then(({ data }) => {
+            setSession(data.session)
+            if (data.session?.user) {
+                fetchDisplayName(data.session.user.id)
+            }
+        })
+        const { data: sub } = supabase.auth.onAuthStateChange((_, s) => {
+            setSession(s)
+            if (s?.user) {
+                fetchDisplayName(s.user.id)
+            } else {
+                setDisplayName('')
+            }
+        })
         return () => sub.subscription.unsubscribe()
-    }, [])
+    }, [fetchDisplayName])
+
+    // Re-fetch display name every time this screen comes back into focus
+    // (e.g. after navigating back from Profile screen)
+    useFocusEffect(useCallback(() => {
+        supabase.auth.getSession().then(({ data }) => {
+            if (data.session?.user) fetchDisplayName(data.session.user.id)
+        })
+    }, [fetchDisplayName]))
 
     const fetchData = useCallback(async () => {
         const { data: { session: s } } = await supabase.auth.getSession()
@@ -198,6 +256,15 @@ export default function ThoughtsScreen() {
                 { event: '*', schema: 'public', table: 'notebooks', filter: `user_id=eq.${userId}` },
                 () => fetchData()
             )
+            .on(
+                'postgres_changes',
+                // Listen for any change (INSERT or UPDATE) on own profile row
+                { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
+                (payload) => {
+                    const newName = (payload.new as { display_name?: string })?.display_name
+                    if (newName !== undefined) setDisplayName(newName)
+                }
+            )
             .subscribe()
 
         return () => {
@@ -243,7 +310,14 @@ export default function ThoughtsScreen() {
     const openNoteActionsAt = (note: Note, anchor: { x: number, y: number }) => {
         setNoteActionsTarget(note)
         setNoteActionsAnchor(anchor)
-        slideAnim.setValue(0) // Reset to actions mode silently
+
+        const metrics = getPopoverMetrics('actions', anchor.y, notebooks.length, windowHeight)
+
+        slideAnim.setValue(0)
+        heightAnim.setValue(metrics.height)
+        topAnim.setValue(metrics.top)
+        tipTopAnim.setValue(metrics.tipTop)
+
         setPopoverMode('actions')
     }
 
@@ -306,20 +380,38 @@ export default function ThoughtsScreen() {
                 options={{
                     headerTitle: () => (
                         <Pressable onPress={() => router.replace('/')} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#111' }}>Aero Agent</Text>
-                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#999', marginHorizontal: 8 }}>/</Text>
-                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#111' }}>Thoughts</Text>
+                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#fff' }}>Aero Agent</Text>
+                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: 'rgba(255,255,255,0.5)', marginHorizontal: 8 }}>/</Text>
+                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#fff' }}>Thoughts</Text>
                         </Pressable>
                     ),
                     headerRight: () => (
                         <Pressable onPress={() => openEditor()} style={{ paddingHorizontal: 14, paddingVertical: 6 }}>
-                            <Ionicons name="add" size={26} color="#6366F1" />
+                            <Ionicons name="add" size={26} color="#fff" />
                         </Pressable>
                     ),
+                    headerStyle: { backgroundColor: 'transparent' },
+                    headerBackground: () => <GradientHeaderBg />,
+                    headerTintColor: '#fff',
                 }}
             />
 
-            {session?.user && <ProfileHeader email={session.user.email} />}
+            {session?.user && (
+                <ProfileHeader
+                    displayName={displayName}
+                    onAvatarPress={() => router.push('/profile')}
+                />
+            )}
+
+            {/* Toolbar: sits between profile block and notes list */}
+            {session?.user && !loading && (
+                <View style={styles.toolbar}>
+                    <Pressable style={styles.newNoteBtn} onPress={() => openEditor()}>
+                        <Ionicons name="add" size={18} color="#fff" />
+                        <Text style={styles.newNoteBtnText}>New Thought</Text>
+                    </Pressable>
+                </View>
+            )}
 
             <View style={styles.mainContent}>
                 {loading ? (
@@ -397,30 +489,21 @@ export default function ThoughtsScreen() {
 
                     {!!popoverMode && (() => {
                         const MENU_W = 240
-                        // Use the taller height to ensure we don't clamp differently between modes
-                        const MENU_H = popoverMode === 'picker' ? 400 : 160
                         const anchorX = noteActionsAnchor?.x ?? windowWidth - 20
-                        const anchorY = noteActionsAnchor?.y ?? 120
-
                         const left = Math.max(anchorX - MENU_W - 15, 8)
-                        // Buffer for bottom nav (80px) and top status bar (40px)
-                        const top = Math.min(Math.max(anchorY - MENU_H / 2, 40), windowHeight - MENU_H - 80)
 
-                        // Tip calculation: point exactly at anchorY relative to popover top
-                        const tipTop = Math.min(Math.max(anchorY - top - 7, 10), Math.max(MENU_H - 24, 10))
-
-                        // We render BOTH modes inside a hidden overflow container and slide them
                         return (
-                            <View style={[styles.popoverWrapper, { width: MENU_W, left, top }]}>
+                            <Animated.View style={[styles.popoverWrapper, { width: MENU_W, left, top: topAnim, height: heightAnim }]}>
                                 {/* Shared Tip */}
-                                <View style={[styles.popoverTipBorder, { right: -8, top: tipTop }]} />
-                                <View style={[styles.popoverTip, { right: -7, top: tipTop }]} />
+                                <Animated.View style={[styles.popoverTipBorder, { right: -8, top: tipTopAnim }]} />
+                                <Animated.View style={[styles.popoverTip, { right: -7, top: tipTopAnim }]} />
 
-                                <View style={styles.popoverOverflowHidden}>
+                                <View style={[styles.popoverOverflowHidden, { flex: 1 }]}>
                                     <Animated.View style={[
                                         styles.popoverSlidingContainer,
                                         {
                                             width: MENU_W * 2,
+                                            height: '100%',
                                             transform: [{
                                                 translateX: slideAnim.interpolate({
                                                     inputRange: [0, 1],
@@ -431,7 +514,7 @@ export default function ThoughtsScreen() {
                                     ]}>
 
                                         {/* --- Actions Panel --- */}
-                                        <View style={{ width: MENU_W, height: popoverMode === 'actions' ? undefined : MENU_H }}>
+                                        <View style={{ width: MENU_W, height: 130 }}>
                                             <Text style={styles.popoverTitle} numberOfLines={1}>
                                                 {noteActionsTarget?.title || '(Untitled)'}
                                             </Text>
@@ -452,14 +535,14 @@ export default function ThoughtsScreen() {
                                         </View>
 
                                         {/* --- Picker Panel --- */}
-                                        <View style={{ width: MENU_W, height: popoverMode === 'picker' ? undefined : MENU_H, paddingBottom: 8 }}>
+                                        <View style={{ width: MENU_W, paddingBottom: 8, height: '100%' }}>
                                             <View style={styles.popoverHeader}>
                                                 <Pressable onPress={() => handleSetPopoverMode('actions')} style={{ padding: 4 }}>
                                                     <Ionicons name="arrow-back" size={20} color="#666" />
                                                 </Pressable>
                                                 <Text style={styles.popoverTitle}>Choose Notebook</Text>
                                             </View>
-                                            <ScrollView style={{ maxHeight: 300 }}>
+                                            <ScrollView style={{ flex: 1 }}>
                                                 <Pressable
                                                     style={styles.popoverItem}
                                                     onPress={() => handleAssignNotebook(null)}
@@ -491,7 +574,7 @@ export default function ThoughtsScreen() {
 
                                     </Animated.View>
                                 </View>
-                            </View>
+                            </Animated.View>
                         )
                     })()}
                 </View>
@@ -503,6 +586,32 @@ export default function ThoughtsScreen() {
 const styles = StyleSheet.create({
     screen: { flex: 1, backgroundColor: '#fff' },
     mainContent: { flex: 2 },
+    toolbar: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        paddingHorizontal: 24,
+        paddingRight: '5%',
+        paddingVertical: 10,
+        backgroundColor: '#fff',
+    },
+    newNoteBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#6366F1',
+        ...Platform.select({
+            web: { paddingVertical: 8, paddingHorizontal: 16 },
+            default: { paddingVertical: 5, paddingHorizontal: 10 },  // mobile
+        }),
+        borderRadius: 10,
+    },
+    newNoteBtnText: {
+        ...Platform.select({
+            web: { fontSize: 14 },
+            default: { fontSize: 12 },
+        }),
+        color: '#fff', fontWeight: '700',
+    },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
     emptyTitle: { marginTop: 16, fontSize: 17, fontWeight: '700', color: '#888', textAlign: 'center' },
     emptySubtitle: { marginTop: 6, fontSize: 14, color: '#aaa', textAlign: 'center', maxWidth: 260 },
@@ -512,12 +621,20 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 6,
         backgroundColor: '#6366F1',
-        paddingVertical: 12,
-        paddingHorizontal: 20,
+        ...Platform.select({
+            web: { paddingVertical: 12, paddingHorizontal: 20 },
+            default: { paddingVertical: 8, paddingHorizontal: 14 },
+        }),
         borderRadius: 10,
     },
-    createBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-    list: { padding: 16 },
+    createBtnText: {
+        ...Platform.select({
+            web: { fontSize: 15 },
+            default: { fontSize: 13 },
+        }),
+        color: '#fff', fontWeight: '700',
+    },
+    list: { padding: 16, paddingTop: 8 },
     groupContainer: {
         marginBottom: 8,
         borderRadius: 12,

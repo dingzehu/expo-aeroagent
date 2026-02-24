@@ -1,19 +1,19 @@
 import { Ionicons } from '@expo/vector-icons'
 import type { Session } from '@supabase/supabase-js'
-import { Stack, router } from 'expo-router'
+import { Stack, router, useFocusEffect } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import Auth, { type AuthMode } from '../components/Auth'
-import { supabase } from '../lib/supabase'
-
-
+import { GradientHeaderBg } from '../components/GradientHeaderBg'
 import ProfileHeader from '../components/ProfileHeader'
+import { supabase } from '../lib/supabase'
 
 export default function Index() {
   const [drawerVisible, setDrawerVisible] = useState(false)
   const [authVisible, setAuthVisible] = useState(false)
   const [authMode, setAuthMode] = useState<AuthMode>('signIn')
   const [session, setSession] = useState<Session | null>(null)
+  const [displayName, setDisplayName] = useState<string | null>(null)
 
   const drawerAnim = useRef(new Animated.Value(0)).current
   const drawerWidth = 340
@@ -38,12 +38,47 @@ export default function Index() {
   }, [drawerAnim])
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+      if (data.session?.user) {
+        supabase
+          .from('profiles')
+          .select('display_name')
+          .eq('id', data.session.user.id)
+          .single()
+          .then(({ data: p }) => { if (p?.display_name) setDisplayName(p.display_name) })
+      }
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
+      if (nextSession?.user) {
+        supabase
+          .from('profiles')
+          .select('display_name')
+          .eq('id', nextSession.user.id)
+          .single()
+          .then(({ data: p }) => { if (p?.display_name) setDisplayName(p.display_name) })
+      } else {
+        setDisplayName('')
+      }
     })
     return () => sub.subscription.unsubscribe()
   }, [])
+
+  // Re-fetch display name every time this screen comes back into focus
+  // (e.g. after navigating back from the Profile screen)
+  useFocusEffect(useCallback(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.user) {
+        supabase
+          .from('profiles')
+          .select('display_name')
+          .eq('id', data.session.user.id)
+          .single()
+          .then(({ data: p }) => { if (p?.display_name) setDisplayName(p.display_name) })
+      }
+    })
+  }, []))
 
   // Beginner note:
   // - We DO NOT auto-redirect logged-in users anymore.
@@ -57,7 +92,7 @@ export default function Index() {
         onPress={openDrawer}
         style={{ paddingHorizontal: 12, paddingVertical: 6 }}
       >
-        <Ionicons name="person-circle-outline" size={28} color="#111" />
+        <Ionicons name="person-circle-outline" size={28} color="#fff" />
       </Pressable>
     )
     HeaderRight.displayName = 'HeaderRight'
@@ -66,10 +101,19 @@ export default function Index() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ headerRight }} />
+      <Stack.Screen options={{
+        headerRight,
+        headerTitle: '',
+        headerStyle: { backgroundColor: 'transparent' },
+        headerBackground: () => <GradientHeaderBg />,
+        headerTintColor: '#fff',
+      }} />
 
       {session?.user ? (
-        <ProfileHeader email={session.user.email} />
+        <ProfileHeader
+          displayName={displayName}
+          onAvatarPress={() => router.push('/profile')}
+        />
       ) : (
         <View style={{ height: '33.33%', justifyContent: 'center', alignItems: 'center' }}>
           <Ionicons name="airplane-outline" size={64} color="#4F46E5" />
@@ -77,7 +121,7 @@ export default function Index() {
       )}
 
       <View style={styles.mainContent}>
-        {/* If logged out, show Auth inline as the “entry gate” */}
+        {/* If logged out, show Auth inline as the "entry gate" */}
         {!session?.user ? (
           <View style={{ width: '100%', maxWidth: 420, marginBottom: 24 }}>
             <Auth mode="signIn" />

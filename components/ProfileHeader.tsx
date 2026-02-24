@@ -1,13 +1,16 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 interface ProfileHeaderProps {
-    email?: string;
+    displayName?: string | null;
+    onAvatarPress?: () => void;
 }
 
-export default function ProfileHeader({ email }: ProfileHeaderProps) {
-    const initials = email ? email.substring(0, 2).toUpperCase() : '??';
+export default function ProfileHeader({ displayName, onAvatarPress }: ProfileHeaderProps) {
+    const loaded = displayName !== null && displayName !== undefined;
+    const name = displayName || 'Aero User';
+    const initials = name.substring(0, 2).toUpperCase();
 
     return (
         <View style={styles.container}>
@@ -18,13 +21,19 @@ export default function ProfileHeader({ email }: ProfileHeaderProps) {
                 style={styles.gradient}
             />
             <View style={styles.content}>
-                <View style={styles.avatarContainer}>
+                <Pressable
+                    onPress={onAvatarPress}
+                    style={styles.avatarContainer}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit profile"
+                >
                     <Text style={styles.avatarText}>{initials}</Text>
-                </View>
+                </Pressable>
                 <View style={styles.infoContainer}>
+                    <Text style={styles.brandText}>Aero Agent</Text>
                     <Text style={styles.welcomeText}>Welcome back,</Text>
-                    <Text style={styles.emailText} numberOfLines={1}>
-                        {email || 'Aero User'}
+                    <Text style={[styles.nameText, !loaded && { opacity: 0 }]} numberOfLines={1}>
+                        {name}
                     </Text>
                 </View>
             </View>
@@ -40,8 +49,9 @@ const styles = StyleSheet.create({
         height: '33.33%',
         backgroundColor: '#4F46E5',
         overflow: 'hidden',
-        justifyContent: 'center',
+        justifyContent: 'flex-end',
         paddingHorizontal: 24,
+        paddingBottom: 20,
         position: 'relative',
     },
     gradient: {
@@ -49,7 +59,7 @@ const styles = StyleSheet.create({
     },
     content: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-end',
         zIndex: 10,
     },
     avatarContainer: {
@@ -83,13 +93,20 @@ const styles = StyleSheet.create({
         marginLeft: 20,
         flex: 1,
     },
+    brandText: {
+        fontSize: 11,
+        color: 'rgba(255, 255, 255, 0.6)',
+        fontWeight: '600',
+        letterSpacing: 0.5,
+        marginBottom: 2,
+    },
     welcomeText: {
-        fontSize: 16,
+        fontSize: 14,
         color: 'rgba(255, 255, 255, 0.8)',
         fontWeight: '600',
-        marginBottom: 4,
+        marginBottom: 2,
     },
-    emailText: {
+    nameText: {
         fontSize: 24,
         color: '#fff',
         fontWeight: '800',

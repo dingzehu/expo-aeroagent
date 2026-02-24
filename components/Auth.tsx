@@ -23,6 +23,7 @@ type AuthProps = {
 export default function Auth({ mode = 'signIn', onSuccess }: AuthProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
@@ -55,7 +56,7 @@ export default function Auth({ mode = 'signIn', onSuccess }: AuthProps) {
     setLoading(true)
     const emailRedirectTo = Linking.createURL('/auth/confirm')
     const {
-      data: { session },
+      data: { session, user },
       error,
     } = await supabase.auth.signUp({
       email: email,
@@ -63,8 +64,21 @@ export default function Auth({ mode = 'signIn', onSuccess }: AuthProps) {
       options: { emailRedirectTo },
     })
 
-    if (error) Alert.alert(error.message)
-    else onSuccess?.()
+    if (error) {
+      Alert.alert(error.message)
+      setLoading(false)
+      return
+    }
+
+    // Create the user's profile with their chosen display name
+    if (user) {
+      await supabase.from('profiles').upsert({
+        id: user.id,
+        display_name: displayName.trim() || 'Aero User',
+      })
+    }
+
+    onSuccess?.()
     if (!session) Alert.alert('Please check your inbox for email verification!')
     setLoading(false)
   }
@@ -77,6 +91,20 @@ export default function Auth({ mode = 'signIn', onSuccess }: AuthProps) {
     <View style={styles.container}>
       <Text style={styles.title}>{title}</Text>
 
+      {/* Display Name — only shown during registration */}
+      {mode === 'signUp' && (
+        <>
+          <Text style={styles.label}>Display Name</Text>
+          <TextInput
+            style={styles.input}
+            onChangeText={(text: string) => setDisplayName(text)}
+            value={displayName}
+            placeholder="How should we call you?"
+            autoCapitalize="words"
+          />
+        </>
+      )}
+
       <Text style={styles.label}>Email</Text>
       <TextInput
         style={styles.input}
@@ -88,11 +116,11 @@ export default function Auth({ mode = 'signIn', onSuccess }: AuthProps) {
       />
 
       <Text style={styles.label}>Password</Text>
-      {/* 
-        Password input with “eye” icon:
+      {/*
+        Password input with "eye" icon:
         - `secureTextEntry` hides the password when showPassword is false
         - Tapping the eye toggles show/hide
-        - We add right padding so the text doesn’t go under the icon
+        - We add right padding so the text doesn't go under the icon
       */}
       <View style={styles.passwordRow}>
         <TextInput
