@@ -385,11 +385,6 @@ export default function ThoughtsScreen() {
                             <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#fff' }}>Thoughts</Text>
                         </Pressable>
                     ),
-                    headerRight: () => (
-                        <Pressable onPress={() => openEditor()} style={{ paddingHorizontal: 14, paddingVertical: 6 }}>
-                            <Ionicons name="add" size={26} color="#fff" />
-                        </Pressable>
-                    ),
                     headerStyle: { backgroundColor: 'transparent' },
                     headerBackground: () => <GradientHeaderBg />,
                     headerTintColor: '#fff',
