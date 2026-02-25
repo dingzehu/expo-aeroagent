@@ -1,4 +1,5 @@
 import Auth, { type AuthMode } from '../components/Auth'
+import ProfileEditForm from '../components/ProfileEditForm'
 import ProfileHeader from '../components/ProfileHeader'
 import { supabase } from '../lib/supabase'
 import type { Session } from '@supabase/supabase-js'
@@ -12,6 +13,7 @@ export default function RootLayout() {
   const [drawerVisible, setDrawerVisible] = useState(false)
   const [authVisible, setAuthVisible] = useState(false)
   const [authMode, setAuthMode] = useState<AuthMode>('signIn')
+  const [profileModalVisible, setProfileModalVisible] = useState(false)
   const drawerAnim = useRef(new Animated.Value(0)).current
   const drawerWidth = 340
   const pathname = usePathname()
@@ -127,6 +129,12 @@ export default function RootLayout() {
                 <Text style={styles.drawerEmail}>{session.user.email}</Text>
                 <Pressable
                   style={[styles.menuItem, { marginTop: 16 }]}
+                  onPress={() => { closeDrawer(); setProfileModalVisible(true) }}
+                >
+                  <Text style={styles.menuItemText}>Edit profile</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.menuItem}
                   onPress={async () => {
                     await supabase.auth.signOut()
                     closeDrawer()
@@ -184,6 +192,21 @@ export default function RootLayout() {
             >
               <Text style={styles.menuItemText}>Close</Text>
             </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Edit profile bottom sheet */}
+      <Modal
+        transparent
+        visible={profileModalVisible}
+        animationType="slide"
+        onRequestClose={() => setProfileModalVisible(false)}
+      >
+        <Pressable style={styles.bottomSheetBackdrop} onPress={() => setProfileModalVisible(false)}>
+          <Pressable style={styles.bottomSheet} onPress={() => {}}>
+            <View style={styles.bottomSheetHandle} />
+            <ProfileEditForm onDone={() => setProfileModalVisible(false)} />
           </Pressable>
         </Pressable>
       </Modal>
@@ -264,5 +287,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 12,
+  },
+  bottomSheetBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  bottomSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '85%',
+    paddingTop: 8,
+  },
+  bottomSheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#ddd',
+    alignSelf: 'center',
+    marginBottom: 4,
   },
 })
