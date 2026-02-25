@@ -1131,96 +1131,31 @@ export default function NotebookScreen() {
     else openSavedDrawer()
   }, [closeSavedDrawer, openSavedDrawer, savedDrawerVisible])
 
-  // Header: Studio toolbar (New Note, autosave status, Saved toggle, Account)
-  const headerLeft = useMemo(() => {
-    const HeaderLeft = () => (
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          onPress={() => {
-            if (router.canGoBack()) router.back()
-            else router.replace('/')
-          }}
-          style={{ paddingHorizontal: 10, paddingVertical: 6 }}
-        >
-          <Ionicons name="arrow-back" size={24} color="#111" />
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Saved notes"
-          onPress={toggleSavedListOrSidebar}
-          style={{ paddingHorizontal: 10, paddingVertical: 6 }}
-        >
-          <MaterialIcons name="menu" size={24} color="#111" />
-        </Pressable>
-      </View>
-    )
-    HeaderLeft.displayName = 'HeaderLeft'
-    return HeaderLeft
-  }, [router, toggleSavedListOrSidebar])
-
-  const headerRight = useMemo(() => {
-    const HeaderRight = () => (
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="New note"
-          onPress={handleNewNote}
-          style={{ paddingHorizontal: 10, paddingVertical: 6 }}
-        >
-          <MaterialIcons name="note-add" size={22} color="#111" />
-        </Pressable>
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Account"
-          onPress={() => {
-            if (drawerVisible) closeDrawer()
-            else openDrawer()
-          }}
-          style={{ paddingHorizontal: 12, paddingVertical: 6 }}
-        >
-          <Ionicons name="person-circle-outline" size={28} color="#111" />
-        </Pressable>
-      </View>
-    )
-    HeaderRight.displayName = 'HeaderRight'
-    return HeaderRight
-  }, [closeDrawer, drawerVisible, handleNewNote, openDrawer])
-
-  const headerTitle = useMemo(() => {
-    const HeaderTitle = () => (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Back to Aero Agent"
-        onPress={() => {
-          if (router.canGoBack()) router.back()
-          else router.replace('/')
-        }}
-        style={styles.headerTitleButton}
-      >
-        <Text style={styles.headerTitleText}>Aero Agent</Text>
-      </Pressable>
-    )
-    HeaderTitle.displayName = 'HeaderTitle'
-    return HeaderTitle
-  }, [router])
-
   // ----------------------------
   // Render: If not logged in, show Auth component
   // ----------------------------
   return (
     <View style={styles.screen}>
-      <Stack.Screen
-        options={{
-          headerLeft,
-          headerRight,
-          headerTitle,
-          headerTitleAlign: 'center',
-          headerBackVisible: false,
-        }}
-      />
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <View style={styles.studioToolbar}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Saved notes"
+          onPress={toggleSavedListOrSidebar}
+          style={styles.studioToolbarBtn}
+        >
+          <MaterialIcons name="menu" size={24} color="#111" />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="New note"
+          onPress={handleNewNote}
+          style={styles.studioToolbarBtn}
+        >
+          <MaterialIcons name="note-add" size={24} color="#111" />
+        </Pressable>
+      </View>
 
       <View style={styles.topHalf}>
         <View style={[styles.workbenchRow, isNarrow && { flexDirection: 'column' }]}>
@@ -1821,14 +1756,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
   },
-  headerTitleButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+  studioToolbar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
   },
-  headerTitleText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#111827',
+  studioToolbarBtn: {
+    padding: 6,
   },
   backdrop: {
     flex: 1,

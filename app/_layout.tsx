@@ -76,7 +76,7 @@ export default function RootLayout() {
   }, [drawerAnim])
   */
 
-  const showHeader = !!session?.user && (pathname === '/' || pathname === '/thoughts')
+  const showHeader = !!session?.user && (pathname === '/' || pathname === '/thoughts' || pathname === '/notes')
 
   return (
     <View style={styles.root}>
@@ -84,9 +84,9 @@ export default function RootLayout() {
         <ProfileHeader
           displayName={displayName}
           email={session!.user.email}
-          showMenu={pathname === '/'}
+          showMenu={pathname === '/' || pathname === '/thoughts' || pathname === '/notes'}
           onMenuPress={(anchor) => setMenuAnchor(anchor)}
-          showBack={pathname === '/thoughts'}
+          showBack={pathname === '/thoughts' || pathname === '/notes'}
           onBackPress={() => router.back()}
           onAvatarPress={() => router.push('/profile')}
         />
@@ -245,7 +245,12 @@ export default function RootLayout() {
         <Pressable style={styles.bottomSheetBackdrop} onPress={() => setProfileModalVisible(false)}>
           <Pressable style={[styles.bottomSheet, { height: screenHeight * 0.6 }]} onPress={() => {}}>
             <View style={styles.bottomSheetHandle} />
-            <ProfileEditForm onDone={() => setProfileModalVisible(false)} />
+            <ProfileEditForm
+              onDone={() => {
+                setProfileModalVisible(false)
+                if (session?.user) fetchDisplayName(session.user.id)
+              }}
+            />
           </Pressable>
         </Pressable>
       </Modal>
