@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
 import type { Session } from '@supabase/supabase-js'
-import { Stack, useFocusEffect, useRouter } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
@@ -16,12 +16,7 @@ import {
     View,
 } from 'react-native'
 
-// Without path alias
-//import ProfileHeader from '../components/ProfileHeader'
-//import { supabase } from '../lib/supabase'
-
 // With path alias
-import ProfileHeader from '@/components/ProfileHeader'
 import { supabase } from '@/lib/supabase'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -112,7 +107,6 @@ export default function ThoughtsScreen() {
     const router = useRouter()
     const { width: windowWidth, height: windowHeight } = useWindowDimensions()
     const [session, setSession] = useState<Session | null>(null)
-    const [displayName, setDisplayName] = useState<string | null>(null)
     const [notes, setNotes] = useState<Note[]>([])
     const [notebooks, setNotebooks] = useState<Notebook[]>([])
     const [loading, setLoading] = useState(true)
@@ -171,41 +165,15 @@ export default function ThoughtsScreen() {
     }, [slideAnim, heightAnim, topAnim, tipTopAnim, noteActionsAnchor, notebooks.length, windowHeight, getPopoverMetrics])
 
 
-    // Fetch display name from profiles table
-    const fetchDisplayName = useCallback(async (userId: string) => {
-        const { data } = await supabase
-            .from('profiles')
-            .select('display_name')
-            .eq('id', userId)
-            .single()
-        if (data?.display_name !== undefined) setDisplayName(data.display_name)
-    }, [])
-
     useEffect(() => {
         supabase.auth.getSession().then(({ data }) => {
             setSession(data.session)
-            if (data.session?.user) {
-                fetchDisplayName(data.session.user.id)
-            }
         })
         const { data: sub } = supabase.auth.onAuthStateChange((_, s) => {
             setSession(s)
-            if (s?.user) {
-                fetchDisplayName(s.user.id)
-            } else {
-                setDisplayName('')
-            }
         })
         return () => sub.subscription.unsubscribe()
-    }, [fetchDisplayName])
-
-    // Re-fetch display name every time this screen comes back into focus
-    // (e.g. after navigating back from Profile screen)
-    useFocusEffect(useCallback(() => {
-        supabase.auth.getSession().then(({ data }) => {
-            if (data.session?.user) fetchDisplayName(data.session.user.id)
-        })
-    }, [fetchDisplayName]))
+    }, [])
 
     const fetchData = useCallback(async () => {
         const { data: { session: s } } = await supabase.auth.getSession()
@@ -254,15 +222,6 @@ export default function ThoughtsScreen() {
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'notebooks', filter: `user_id=eq.${userId}` },
                 () => fetchData()
-            )
-            .on(
-                'postgres_changes',
-                // Listen for any change (INSERT or UPDATE) on own profile row
-                { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
-                (payload) => {
-                    const newName = (payload.new as { display_name?: string })?.display_name
-                    if (newName !== undefined) setDisplayName(newName)
-                }
             )
             .subscribe()
 
@@ -376,16 +335,6 @@ export default function ThoughtsScreen() {
     return (
         <View style={styles.screen}>
             <Stack.Screen options={{ headerShown: false }} />
-
-            {session?.user && (
-                <ProfileHeader
-                    displayName={displayName}
-                    email={session.user.email}
-                    showBack
-                    onBackPress={() => router.replace('/')}
-                    onAvatarPress={() => router.push('/profile')}
-                />
-            )}
 
             {/* Toolbar: sits between profile block and notes list */}
             {session?.user && !loading && (
