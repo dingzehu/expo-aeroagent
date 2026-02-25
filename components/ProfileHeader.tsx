@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import React from 'react';
+import React, { useRef } from 'react';
 import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,7 +10,7 @@ interface ProfileHeaderProps {
     showBack?: boolean;
     onBackPress?: () => void;
     showMenu?: boolean;
-    onMenuPress?: () => void;
+    onMenuPress?: (anchor: { x: number; y: number }) => void;
     onAvatarPress?: () => void;
 }
 
@@ -22,6 +22,13 @@ export default function ProfileHeader({ displayName, email, showBack, onBackPres
 
     const { height: screenHeight } = useWindowDimensions();
     const insets = useSafeAreaInsets();
+
+    const menuBtnRef = useRef<View>(null);
+    const handleMenuPress = () => {
+        menuBtnRef.current?.measureInWindow((x, y, width, height) => {
+            onMenuPress?.({ x: x + width / 2, y: y + height / 2 });
+        });
+    };
 
     return (
         <View style={[styles.container, { height: screenHeight * 0.15, paddingTop: insets.top }]}>
@@ -38,7 +45,7 @@ export default function ProfileHeader({ displayName, email, showBack, onBackPres
                 </Pressable>
             )}
             {showMenu && (
-                <Pressable onPress={onMenuPress} style={styles.menuButton}>
+                <Pressable ref={menuBtnRef} onPress={handleMenuPress} style={styles.menuButton}>
                     <Ionicons name="ellipsis-horizontal" size={28} color="#fff" />
                 </Pressable>
             )}

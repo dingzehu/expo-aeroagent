@@ -10,12 +10,15 @@ import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from 're
 export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null)
   const [displayName, setDisplayName] = useState<string | null>(null)
+  /* drawer state — kept but disabled in favour of popover
   const [drawerVisible, setDrawerVisible] = useState(false)
+  const drawerAnim = useRef(new Animated.Value(0)).current
+  const drawerWidth = 340
+  */
   const [authVisible, setAuthVisible] = useState(false)
   const [authMode, setAuthMode] = useState<AuthMode>('signIn')
   const [profileModalVisible, setProfileModalVisible] = useState(false)
-  const drawerAnim = useRef(new Animated.Value(0)).current
-  const drawerWidth = 340
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null)
   const pathname = usePathname()
   const router = useRouter()
 
@@ -51,6 +54,7 @@ export default function RootLayout() {
     }
   }, [pathname, session?.user?.id, fetchDisplayName])
 
+  /* drawer callbacks — kept but disabled in favour of popover
   const openDrawer = useCallback(() => {
     setDrawerVisible(true)
     Animated.timing(drawerAnim, {
@@ -69,6 +73,7 @@ export default function RootLayout() {
       if (finished) setDrawerVisible(false)
     })
   }, [drawerAnim])
+  */
 
   const showHeader = !!session?.user && (pathname === '/' || pathname === '/thoughts')
 
@@ -79,7 +84,7 @@ export default function RootLayout() {
           displayName={displayName}
           email={session!.user.email}
           showMenu={pathname === '/'}
-          onMenuPress={openDrawer}
+          onMenuPress={(anchor) => setMenuAnchor(anchor)}
           showBack={pathname === '/thoughts'}
           onBackPress={() => router.back()}
           onAvatarPress={() => router.push('/profile')}
@@ -104,7 +109,7 @@ export default function RootLayout() {
         <Stack.Screen name="profile" options={{ headerTitle: 'Edit Profile' }} />
       </Stack>
 
-      {/* Account drawer (moved from index.tsx) */}
+      {/* Account drawer — kept but disabled in favour of popover
       {drawerVisible && (
         <Pressable style={styles.drawerBackdrop} onPress={closeDrawer}>
           <Animated.View
@@ -175,6 +180,39 @@ export default function RootLayout() {
           </Animated.View>
         </Pressable>
       )}
+      */}
+
+      {/* Account popover */}
+      <Modal
+        transparent
+        visible={!!menuAnchor}
+        animationType="fade"
+        onRequestClose={() => setMenuAnchor(null)}
+      >
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setMenuAnchor(null)} />
+        {!!menuAnchor && (() => {
+          const POPOVER_W = 180
+          const left = Math.max(menuAnchor.x - POPOVER_W + 14, 8)
+          const top = menuAnchor.y + 16
+          return (
+            <View style={[styles.popover, { left, top, width: POPOVER_W }]}>
+              <Pressable
+                style={styles.popoverItem}
+                onPress={() => { setMenuAnchor(null); setProfileModalVisible(true) }}
+              >
+                <Text style={styles.popoverItemText}>Edit profile</Text>
+              </Pressable>
+              <View style={styles.popoverDivider} />
+              <Pressable
+                style={styles.popoverItem}
+                onPress={async () => { setMenuAnchor(null); await supabase.auth.signOut() }}
+              >
+                <Text style={[styles.popoverItemText, { color: '#dc2626' }]}>Log Out</Text>
+              </Pressable>
+            </View>
+          )
+        })()}
+      </Modal>
 
       {/* Auth popup triggered from drawer */}
       <Modal
@@ -307,5 +345,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#ddd',
     alignSelf: 'center',
     marginBottom: 4,
+  },
+  popover: {
+    position: 'absolute',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+    overflow: 'hidden',
+  },
+  popoverItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  popoverItemText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111',
+  },
+  popoverDivider: {
+    height: 1,
+    backgroundColor: '#eee',
+    marginHorizontal: 8,
   },
 })
