@@ -95,10 +95,7 @@ export default function ProfileEditForm({ onDone }: ProfileEditFormProps) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
-        contentContainerStyle={[
-          styles.form,
-          { minHeight: screenHeight * 0.4 },
-        ]}
+        contentContainerStyle={[styles.form, { flexGrow: 1 }]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.formInner}>

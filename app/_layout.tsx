@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import type { Session } from '@supabase/supabase-js'
 import { Stack, usePathname, useRouter } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Animated, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 
 export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null)
@@ -19,6 +19,7 @@ export default function RootLayout() {
   const [authMode, setAuthMode] = useState<AuthMode>('signIn')
   const [profileModalVisible, setProfileModalVisible] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null)
+  const { height: screenHeight } = useWindowDimensions()
   const pathname = usePathname()
   const router = useRouter()
 
@@ -242,7 +243,7 @@ export default function RootLayout() {
         onRequestClose={() => setProfileModalVisible(false)}
       >
         <Pressable style={styles.bottomSheetBackdrop} onPress={() => setProfileModalVisible(false)}>
-          <Pressable style={styles.bottomSheet} onPress={() => {}}>
+          <Pressable style={[styles.bottomSheet, { height: screenHeight * 0.6 }]} onPress={() => {}}>
             <View style={styles.bottomSheetHandle} />
             <ProfileEditForm onDone={() => setProfileModalVisible(false)} />
           </Pressable>
@@ -335,7 +336,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '85%',
     paddingTop: 8,
   },
   bottomSheetHandle: {
