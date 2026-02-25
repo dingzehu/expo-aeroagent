@@ -21,7 +21,6 @@ import {
 //import { supabase } from '../lib/supabase'
 
 // With path alias
-import { GradientHeaderBg } from '@/components/GradientHeaderBg'
 import ProfileHeader from '@/components/ProfileHeader'
 import { supabase } from '@/lib/supabase'
 
@@ -376,24 +375,14 @@ export default function ThoughtsScreen() {
 
     return (
         <View style={styles.screen}>
-            <Stack.Screen
-                options={{
-                    headerTitle: () => (
-                        <Pressable onPress={() => router.replace('/')} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#fff' }}>Aero Agent</Text>
-                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: 'rgba(255,255,255,0.5)', marginHorizontal: 8 }}>/</Text>
-                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#fff' }}>Thoughts</Text>
-                        </Pressable>
-                    ),
-                    headerStyle: { backgroundColor: 'transparent' },
-                    headerBackground: () => <GradientHeaderBg />,
-                    headerTintColor: '#fff',
-                }}
-            />
+            <Stack.Screen options={{ headerShown: false }} />
 
             {session?.user && (
                 <ProfileHeader
                     displayName={displayName}
+                    email={session.user.email}
+                    showBack
+                    onBackPress={() => router.replace('/')}
                     onAvatarPress={() => router.push('/profile')}
                 />
             )}

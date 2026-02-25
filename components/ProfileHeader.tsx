@@ -1,44 +1,72 @@
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface ProfileHeaderProps {
     displayName?: string | null;
+    email?: string | null;
+    showBack?: boolean;
+    onBackPress?: () => void;
+    showMenu?: boolean;
+    onMenuPress?: () => void;
     onAvatarPress?: () => void;
 }
 
-export default function ProfileHeader({ displayName, onAvatarPress }: ProfileHeaderProps) {
+export default function ProfileHeader({ displayName, email, showBack, onBackPress, showMenu, onMenuPress, onAvatarPress }: ProfileHeaderProps) {
     const loaded = displayName !== null && displayName !== undefined;
     const name = displayName || 'Aero User';
+    const emailProp = email || '';
     const initials = name.substring(0, 2).toUpperCase();
 
+    const { height: screenHeight } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
+
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { height: screenHeight * 0.15, paddingTop: insets.top }]}>
             <LinearGradient
                 colors={['#4F46E5', '#818CF8']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.gradient}
             />
-            <View style={styles.content}>
-                <Pressable
-                    onPress={onAvatarPress}
-                    style={styles.avatarContainer}
-                    accessibilityRole="button"
-                    accessibilityLabel="Edit profile"
-                >
-                    <Text style={styles.avatarText}>{initials}</Text>
+            {showBack && (
+                <Pressable onPress={onBackPress} style={styles.backButton}>
+                    <Ionicons name="arrow-back" size={24} color="#fff" />
+                    <Text style={styles.backText}>Back</Text>
                 </Pressable>
-                <View style={styles.infoContainer}>
+            )}
+            {showMenu && (
+                <Pressable onPress={onMenuPress} style={styles.menuButton}>
+                    <Ionicons name="ellipsis-horizontal" size={28} color="#fff" />
+                </Pressable>
+            )}
+            <View style={styles.decorativeCircle1} pointerEvents="none" />
+            <View style={styles.decorativeCircle2} pointerEvents="none" />
+            <View style={styles.content} pointerEvents="box-none">
+                <View style={styles.avatarContainer}>
+                    <Pressable
+                        onPress={onAvatarPress}
+                        style={styles.avatarPressable}
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit profile"
+                    >
+                        <Text style={styles.avatarText}>{initials}</Text>
+                    </Pressable>
+                </View>
+                <View style={styles.infoContainer} pointerEvents="none">
                     <Text style={styles.brandText}>Aero Agent</Text>
-                    <Text style={styles.welcomeText}>Welcome back,</Text>
                     <Text style={[styles.nameText, !loaded && { opacity: 0 }]} numberOfLines={1}>
                         {name}
                     </Text>
+                    {!!emailProp && (
+                        <Text style={styles.emailText} numberOfLines={1}>
+                            {emailProp}
+                        </Text>
+                    )}
                 </View>
             </View>
-            <View style={styles.decorativeCircle1} />
-            <View style={styles.decorativeCircle2} />
         </View>
     );
 }
@@ -46,13 +74,33 @@ export default function ProfileHeader({ displayName, onAvatarPress }: ProfileHea
 const styles = StyleSheet.create({
     container: {
         width: '100%',
-        height: '33.33%',
         backgroundColor: '#4F46E5',
         overflow: 'hidden',
         justifyContent: 'flex-end',
         paddingHorizontal: 24,
         paddingBottom: 20,
         position: 'relative',
+    },
+    backButton: {
+        position: 'absolute',
+        top: 50, // rough safe area adjustment, overriden by flex basically 
+        left: 20,
+        zIndex: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    backText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '600',
+        marginLeft: 4,
+    },
+    menuButton: {
+        position: 'absolute',
+        top: 50, // rough safe area adjustment, overriden by flex basically 
+        right: 20,
+        zIndex: 20,
+        padding: 4,
     },
     gradient: {
         ...StyleSheet.absoluteFillObject,
@@ -69,8 +117,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255, 255, 255, 0.2)',
         borderWidth: 2,
         borderColor: 'rgba(255, 255, 255, 0.4)',
-        justifyContent: 'center',
-        alignItems: 'center',
         ...Platform.select({
             web: {
                 boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
@@ -83,6 +129,13 @@ const styles = StyleSheet.create({
                 elevation: 10,
             },
         }),
+    },
+    avatarPressable: {
+        width: '100%',
+        height: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 40,
     },
     avatarText: {
         fontSize: 28,
@@ -100,17 +153,17 @@ const styles = StyleSheet.create({
         letterSpacing: 0.5,
         marginBottom: 2,
     },
-    welcomeText: {
-        fontSize: 14,
-        color: 'rgba(255, 255, 255, 0.8)',
-        fontWeight: '600',
-        marginBottom: 2,
-    },
     nameText: {
-        fontSize: 24,
+        fontSize: 22,
         color: '#fff',
         fontWeight: '800',
         letterSpacing: -0.5,
+        marginBottom: 2,
+    },
+    emailText: {
+        fontSize: 14,
+        color: 'rgba(255, 255, 255, 0.9)',
+        fontWeight: '500',
     },
     decorativeCircle1: {
         position: 'absolute',

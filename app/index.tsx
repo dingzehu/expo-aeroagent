@@ -4,7 +4,6 @@ import { Stack, router, useFocusEffect } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import Auth, { type AuthMode } from '../components/Auth'
-import { GradientHeaderBg } from '../components/GradientHeaderBg'
 import ProfileHeader from '../components/ProfileHeader'
 import { supabase } from '../lib/supabase'
 
@@ -101,17 +100,14 @@ export default function Index() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{
-        headerRight,
-        headerTitle: '',
-        headerStyle: { backgroundColor: 'transparent' },
-        headerBackground: () => <GradientHeaderBg />,
-        headerTintColor: '#fff',
-      }} />
+      <Stack.Screen options={{ headerShown: false }} />
 
       {session?.user ? (
         <ProfileHeader
           displayName={displayName}
+          email={session.user.email}
+          showMenu={true}
+          onMenuPress={openDrawer}
           onAvatarPress={() => router.push('/profile')}
         />
       ) : (
