@@ -551,10 +551,10 @@ export default function ThoughtsScreen() {
         const channel = supabase
             .channel('public:thoughts')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${userId}` }, () => {
-                if (!editorVisibleRef.current) fetchData({ silent: true })
+                fetchData({ silent: true })
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'notebooks', filter: `user_id=eq.${userId}` }, () => {
-                if (!editorVisibleRef.current) fetchData({ silent: true })
+                fetchData({ silent: true })
             })
             .subscribe()
         return () => { supabase.removeChannel(channel) }
