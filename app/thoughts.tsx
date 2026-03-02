@@ -437,12 +437,17 @@ function NoteRow({
         })
     }
 
+    const preview = (note.raw_content ?? '').trim().replace(/\s+/g, ' ')
+
     return (
         <View style={rowStyles.container}>
             <Pressable style={rowStyles.pressable} onPress={onPress}>
                 <View style={rowStyles.dot} />
                 <View style={rowStyles.content}>
                     <Text style={rowStyles.title} numberOfLines={1}>{note.title || 'Untitled'}</Text>
+                    {preview.length > 0 && (
+                        <Text style={rowStyles.preview} numberOfLines={2}>{preview}</Text>
+                    )}
                     <Text style={rowStyles.meta}>{timeAgo(note.updated_at)}</Text>
                 </View>
             </Pressable>
@@ -466,7 +471,7 @@ export default function ThoughtsScreen() {
     const [notes, setNotes] = useState<Note[]>([])
     const [notebooks, setNotebooks] = useState<Notebook[]>([])
     const [loading, setLoading] = useState(true)
-    const [expandedNotebookIds, setExpandedNotebookIds] = useState<string[]>(['__none__'])
+    const [selectedNotebookId, setSelectedNotebookId] = useState<string | null>(null)
     const [noteActionsAnchor, setNoteActionsAnchor] = useState<{ x: number; y: number } | null>(null)
     const [noteActionsTarget, setNoteActionsTarget] = useState<Note | null>(null)
     const [assigningNotebookId, setAssigningNotebookId] = useState<string | null>(null)
@@ -474,8 +479,12 @@ export default function ThoughtsScreen() {
     // Drawer
     const [drawerVisible, setDrawerVisible] = useState(false)
     const drawerAnim = useRef(new Animated.Value(0)).current
-    const [drawerSearch, setDrawerSearch] = useState('')
-    const [drawerExpandedIds, setDrawerExpandedIds] = useState<string[]>(['__none__'])
+
+    // Search & notebook management
+    const [mainSearch, setMainSearch] = useState('')
+    const [newNotebookName, setNewNotebookName] = useState('')
+    const [showNewNotebookInput, setShowNewNotebookInput] = useState(false)
+    const [creatingNotebook, setCreatingNotebook] = useState(false)
 
     // Popover
     const [popoverMode, setPopoverMode] = useState<'actions' | 'picker' | null>(null)
@@ -562,37 +571,18 @@ export default function ThoughtsScreen() {
 
     // ─── Grouping ─────────────────────────────────────────────────────────────
 
-    const groupedNotes = useMemo(() => {
-        const groups: Record<string, GroupedNotes> = {}
-        groups['__none__'] = { notebookId: null, notebookName: 'General Notes', colour: null, notes: [] }
-        notebooks.forEach(nb => {
-            groups[nb.id] = { notebookId: nb.id, notebookName: nb.name, colour: nb.colour_tag, notes: [] }
-        })
-        notes.forEach(note => {
-            const nid = note.notebook_id || '__none__'
-            if (!groups[nid]) groups[nid] = { notebookId: nid, notebookName: 'Other', colour: null, notes: [] }
-            groups[nid].notes.push(note)
-        })
-        return Object.values(groups)
-            .filter(g => g.notes.length > 0)
-            .sort((a, b) => {
-                if (a.notebookId === null) return -1
-                if (b.notebookId === null) return 1
-                return a.notebookName.localeCompare(b.notebookName)
-            })
-    }, [notebooks, notes])
-
-    const drawerFilteredGroups = useMemo(() => {
-        const q = drawerSearch.trim().toLowerCase()
-        if (!q) return groupedNotes
-        return groupedNotes.map(g => ({
-            ...g,
-            notes: g.notes.filter(n =>
+    const filteredNotes = useMemo(() => {
+        let result = notes
+        if (selectedNotebookId !== null)
+            result = result.filter(n => n.notebook_id === selectedNotebookId)
+        const q = mainSearch.trim().toLowerCase()
+        if (q)
+            result = result.filter(n =>
                 (n.title ?? '').toLowerCase().includes(q) ||
                 (n.raw_content ?? '').toLowerCase().includes(q)
-            ),
-        })).filter(g => g.notes.length > 0)
-    }, [groupedNotes, drawerSearch])
+            )
+        return result
+    }, [notes, selectedNotebookId, mainSearch])
 
     // ─── Drawer ───────────────────────────────────────────────────────────────
 
@@ -684,6 +674,36 @@ export default function ThoughtsScreen() {
         setPopoverMode(null)
         if (error) Alert.alert('Error', error.message)
         else fetchData()
+    }
+
+    const handleCreateNotebook = async () => {
+        const name = newNotebookName.trim()
+        if (!name || !session?.user?.id) return
+        setCreatingNotebook(true)
+        const { error } = await supabase.from('notebooks').insert({ user_id: session.user.id, name })
+        setCreatingNotebook(false)
+        if (error) { Alert.alert('Error', error.message); return }
+        setNewNotebookName('')
+        setShowNewNotebookInput(false)
+        fetchData({ silent: true })
+    }
+
+    const handleDeleteNotebook = (nb: Notebook) => {
+        Alert.alert(
+            `Delete "${nb.name}"?`,
+            'Notes in this notebook will move to General Notes.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete', style: 'destructive',
+                    onPress: async () => {
+                        const { error } = await supabase.from('notebooks').delete().eq('id', nb.id)
+                        if (error) { Alert.alert('Error', error.message); return }
+                        fetchData({ silent: true })
+                    },
+                },
+            ],
+        )
     }
 
     // ─── Editor open / close ──────────────────────────────────────────────────
@@ -949,12 +969,6 @@ export default function ThoughtsScreen() {
         return Math.max(1, Math.ceil(wordCount / 200))
     }, [wordCount])
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
-
-    const toggleExpand = (id: string) => {
-        setExpandedNotebookIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
-    }
-
     const editorTranslateX = editorSlideAnim.interpolate({
         inputRange: [0, 1],
         outputRange: [0, -windowWidth],
@@ -971,7 +985,7 @@ export default function ThoughtsScreen() {
                 <View style={styles.toolbar}>
                     <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel="Saved notes"
+                        accessibilityLabel="Manage notebooks"
                         onPress={openDrawer}
                         style={styles.toolbarMenuBtn}
                     >
@@ -1016,40 +1030,56 @@ export default function ThoughtsScreen() {
                                 </Pressable>
                             </View>
                         ) : (
-                            <ScrollView contentContainerStyle={styles.list}>
-                                {groupedNotes.map(group => {
-                                    const groupId = group.notebookId || '__none__'
-                                    const isExpanded = expandedNotebookIds.includes(groupId)
-                                    return (
-                                        <View key={groupId} style={styles.groupContainer}>
-                                            <Pressable style={styles.groupHeader} onPress={() => toggleExpand(groupId)}>
-                                                <Ionicons
-                                                    name={isExpanded ? 'chevron-down' : 'chevron-forward'}
-                                                    size={20} color="#666"
-                                                />
-                                                {group.colour && (
-                                                    <View style={[styles.colorDot, { backgroundColor: group.colour }]} />
-                                                )}
-                                                <Text style={styles.groupTitle}>
-                                                    {group.notebookName} ({group.notes.length})
-                                                </Text>
-                                            </Pressable>
-                                            {isExpanded && (
-                                                <View style={styles.groupContent}>
-                                                    {group.notes.map(note => (
-                                                        <NoteRow
-                                                            key={note.id}
-                                                            note={note}
-                                                            onPress={() => openEditor(note)}
-                                                            onMorePress={(anchor) => openNoteActionsAt(note, anchor)}
-                                                        />
-                                                    ))}
-                                                </View>
-                                            )}
-                                        </View>
-                                    )
-                                })}
-                            </ScrollView>
+                            <View style={{ flex: 1 }}>
+                                {/* Filter label + count */}
+                                <View style={styles.listHeader}>
+                                    <Text style={styles.listHeaderLabel}>
+                                        {selectedNotebookId
+                                            ? (notebooks.find(nb => nb.id === selectedNotebookId)?.name ?? 'Notebook')
+                                            : 'All Notes'}
+                                    </Text>
+                                    <Text style={styles.listHeaderCount}>{filteredNotes.length}</Text>
+                                </View>
+
+                                {/* Always-visible search bar */}
+                                <View style={styles.searchBarRow}>
+                                    <Ionicons name="search" size={15} color="#9ca3af" style={{ marginLeft: 12 }} />
+                                    <TextInput
+                                        style={styles.searchBarInput}
+                                        placeholder={selectedNotebookId
+                                            ? `Search in ${notebooks.find(nb => nb.id === selectedNotebookId)?.name ?? 'notebook'}…`
+                                            : 'Search all notes…'}
+                                        placeholderTextColor="#9ca3af"
+                                        value={mainSearch}
+                                        onChangeText={setMainSearch}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                        returnKeyType="search"
+                                        clearButtonMode="while-editing"
+                                    />
+                                </View>
+
+                                {/* Flat note list */}
+                                {filteredNotes.length === 0 ? (
+                                    <View style={styles.center}>
+                                        <Ionicons name="search-outline" size={40} color="#e0e0e0" />
+                                        <Text style={styles.emptyTitle}>
+                                            {mainSearch.trim() ? `No results for "${mainSearch}"` : 'No notes here'}
+                                        </Text>
+                                    </View>
+                                ) : (
+                                    <ScrollView contentContainerStyle={styles.list}>
+                                        {filteredNotes.map(note => (
+                                            <NoteRow
+                                                key={note.id}
+                                                note={note}
+                                                onPress={() => openEditor(note)}
+                                                onMorePress={(anchor) => openNoteActionsAt(note, anchor)}
+                                            />
+                                        ))}
+                                    </ScrollView>
+                                )}
+                            </View>
                         )}
                     </View>
 
@@ -1215,7 +1245,7 @@ export default function ThoughtsScreen() {
                 </Animated.View>
             </View>
 
-            {/* ── Saved-notes drawer (hamburger) ── */}
+            {/* ── Manage drawer (hamburger) — control panel, not a note list ── */}
             <View pointerEvents={drawerVisible ? 'auto' : 'none'} style={StyleSheet.absoluteFillObject}>
                 <Animated.View style={[drawerStyles.backdrop, { opacity: drawerAnim }]} />
                 <Pressable style={StyleSheet.absoluteFillObject} onPress={closeDrawer} />
@@ -1232,78 +1262,95 @@ export default function ThoughtsScreen() {
                     ]}
                 >
                     <View style={drawerStyles.topRow}>
-                        <Text style={drawerStyles.title}>Thoughts</Text>
+                        <Text style={drawerStyles.title}>Manage</Text>
                         <Pressable hitSlop={10} style={drawerStyles.closeBtn} onPress={closeDrawer}>
                             <Ionicons name="close" size={22} color="#111" />
                         </Pressable>
                     </View>
 
-                    <Pressable
-                        style={drawerStyles.newBtn}
-                        onPress={() => { closeDrawer(); openEditor() }}
-                    >
-                        <MaterialIcons name="note-add" size={20} color="#fff" />
-                        <Text style={drawerStyles.newBtnText}>New Thought</Text>
-                    </Pressable>
-
-                    <View style={drawerStyles.searchRow}>
-                        <TextInput
-                            style={drawerStyles.searchInput}
-                            placeholder="Search..."
-                            value={drawerSearch}
-                            onChangeText={setDrawerSearch}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                            returnKeyType="search"
-                            clearButtonMode="while-editing"
-                        />
-                    </View>
-
                     <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
-                        {drawerFilteredGroups.length === 0 ? (
-                            <Text style={drawerStyles.muted}>
-                                {drawerSearch.trim() ? 'No matches' : 'No thoughts yet'}
+                        {/* All Notes navigation item */}
+                        <Pressable
+                            style={[drawerStyles.notebookRow, selectedNotebookId === null && drawerStyles.notebookRowSelected]}
+                            onPress={() => { setSelectedNotebookId(null); closeDrawer() }}
+                        >
+                            <Ionicons name="layers-outline" size={16} color={selectedNotebookId === null ? '#6366F1' : '#6B7280'} />
+                            <Text style={[drawerStyles.notebookName, selectedNotebookId === null && drawerStyles.notebookNameSelected]}>
+                                All Notes
                             </Text>
+                            <Text style={drawerStyles.notebookCount}>{notes.length}</Text>
+                        </Pressable>
+
+                        {/* Notebooks section header */}
+                        <View style={drawerStyles.sectionHeader}>
+                            <Text style={drawerStyles.sectionLabel}>Notebooks</Text>
+                            <Pressable
+                                hitSlop={8}
+                                onPress={() => {
+                                    setShowNewNotebookInput(v => !v)
+                                    setNewNotebookName('')
+                                }}
+                            >
+                                <Ionicons name={showNewNotebookInput ? 'close' : 'add'} size={20} color="#6366F1" />
+                            </Pressable>
+                        </View>
+
+                        {showNewNotebookInput && (
+                            <View style={drawerStyles.newNotebookRow}>
+                                <TextInput
+                                    style={drawerStyles.newNotebookInput}
+                                    placeholder="Notebook name…"
+                                    placeholderTextColor="#9ca3af"
+                                    value={newNotebookName}
+                                    onChangeText={setNewNotebookName}
+                                    autoFocus
+                                    autoCapitalize="words"
+                                    returnKeyType="done"
+                                    onSubmitEditing={handleCreateNotebook}
+                                />
+                                <Pressable
+                                    style={[drawerStyles.newNotebookSave, (!newNotebookName.trim() || creatingNotebook) && { opacity: 0.4 }]}
+                                    onPress={handleCreateNotebook}
+                                    disabled={!newNotebookName.trim() || creatingNotebook}
+                                >
+                                    {creatingNotebook
+                                        ? <ActivityIndicator size="small" color="#fff" />
+                                        : <Text style={drawerStyles.newNotebookSaveText}>Add</Text>
+                                    }
+                                </Pressable>
+                            </View>
+                        )}
+
+                        {notebooks.length === 0 ? (
+                            <Text style={drawerStyles.muted}>No notebooks yet — tap + to create one.</Text>
                         ) : (
-                            drawerFilteredGroups.map(group => {
-                                const groupId = group.notebookId || '__none__'
-                                const isExpanded = drawerExpandedIds.includes(groupId)
-                                return (
-                                    <View key={groupId} style={drawerStyles.group}>
-                                        <Pressable
-                                            style={drawerStyles.groupHeader}
-                                            onPress={() => setDrawerExpandedIds(prev =>
-                                                prev.includes(groupId)
-                                                    ? prev.filter(x => x !== groupId)
-                                                    : [...prev, groupId]
-                                            )}
-                                        >
-                                            <Ionicons
-                                                name={isExpanded ? 'chevron-down' : 'chevron-forward'}
-                                                size={16} color="#666"
-                                            />
-                                            {group.colour && (
-                                                <View style={[drawerStyles.colorDot, { backgroundColor: group.colour }]} />
-                                            )}
-                                            <Text style={drawerStyles.groupTitle} numberOfLines={1}>
-                                                {group.notebookName} ({group.notes.length})
-                                            </Text>
-                                        </Pressable>
-                                        {isExpanded && group.notes.map(note => (
-                                            <Pressable
-                                                key={note.id}
-                                                style={drawerStyles.noteItem}
-                                                onPress={() => { closeDrawer(); openEditor(note) }}
-                                            >
-                                                <Text style={drawerStyles.noteTitle} numberOfLines={1}>
-                                                    {(note.title ?? '').trim() || '(Untitled)'}
-                                                </Text>
-                                                <Text style={drawerStyles.noteMeta}>{timeAgo(note.updated_at)}</Text>
-                                            </Pressable>
-                                        ))}
-                                    </View>
-                                )
-                            })
+                            notebooks.map(nb => (
+                                <View
+                                    key={nb.id}
+                                    style={[drawerStyles.notebookRow, selectedNotebookId === nb.id && drawerStyles.notebookRowSelected]}
+                                >
+                                    {/* Row pressable stops before the delete zone (paddingRight reserves space) */}
+                                    <Pressable
+                                        style={drawerStyles.notebookRowPressable}
+                                        onPress={() => { setSelectedNotebookId(nb.id); closeDrawer() }}
+                                    >
+                                        <View style={[drawerStyles.colorDot, { backgroundColor: nb.colour_tag || '#d1d5db' }]} />
+                                        <Text style={[drawerStyles.notebookName, selectedNotebookId === nb.id && drawerStyles.notebookNameSelected]} numberOfLines={1}>
+                                            {nb.name}
+                                        </Text>
+                                        <Text style={drawerStyles.notebookCount}>
+                                            {notes.filter(n => n.notebook_id === nb.id).length}
+                                        </Text>
+                                    </Pressable>
+                                    {/* Absolutely positioned delete button so it never overlaps the row pressable */}
+                                    <Pressable
+                                        onPress={() => handleDeleteNotebook(nb)}
+                                        style={drawerStyles.notebookDeleteBtn}
+                                    >
+                                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                                    </Pressable>
+                                </View>
+                            ))
                         )}
                     </ScrollView>
                 </Animated.View>
@@ -1420,6 +1467,34 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
     },
     toolbarMenuBtn: { padding: 6 },
+    listHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: 4,
+    },
+    listHeaderLabel: { fontSize: 16, fontWeight: '800', color: '#111' },
+    listHeaderCount: { fontSize: 13, color: '#9CA3AF', fontWeight: '600' },
+    searchBarRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginHorizontal: 16,
+        marginBottom: 8,
+        marginTop: 6,
+        backgroundColor: '#F9FAFB',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    searchBarInput: {
+        flex: 1,
+        paddingVertical: 8,
+        paddingHorizontal: 8,
+        fontSize: 14,
+        color: '#111',
+    },
     newNoteBtn: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1553,10 +1628,11 @@ const rowStyles = StyleSheet.create({
         paddingVertical: 10,
         paddingRight: 10,
     },
-    dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#d1d5db', marginHorizontal: 10 },
+    dot: { width: 4, height: 36, borderRadius: 2, backgroundColor: '#d1d5db', marginHorizontal: 10, alignSelf: 'center' },
     content: { flex: 1 },
     title: { fontSize: 14, fontWeight: '600', color: '#111' },
-    meta: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
+    preview: { fontSize: 12, color: '#6B7280', marginTop: 3, lineHeight: 17 },
+    meta: { fontSize: 11, color: '#9ca3af', marginTop: 4 },
     moreBtn: { padding: 10 },
 })
 
@@ -1568,7 +1644,7 @@ const drawerStyles = StyleSheet.create({
         web: {
             position: 'absolute' as any,
             top: 0, left: 0, bottom: 0,
-            width: 320,
+            width: 300,
             backgroundColor: '#fff',
             paddingTop: 18,
             paddingBottom: 16,
@@ -1577,7 +1653,7 @@ const drawerStyles = StyleSheet.create({
         default: {
             position: 'absolute',
             top: 0, left: 0, bottom: 0,
-            width: 320,
+            width: 300,
             backgroundColor: '#fff',
             paddingTop: 18,
             paddingBottom: 16,
@@ -1592,56 +1668,71 @@ const drawerStyles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: 16,
-        paddingHorizontal: 14,
+        marginBottom: 20,
+        paddingHorizontal: 16,
     },
     title: { fontSize: 18, fontWeight: '800', color: '#111' },
     closeBtn: { paddingHorizontal: 6, paddingVertical: 6, borderRadius: 999, backgroundColor: '#F3F4F6' },
-    newBtn: {
+    sectionHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
-        backgroundColor: '#6366F1',
-        marginHorizontal: 14,
-        marginBottom: 16,
-        paddingVertical: 12,
+        justifyContent: 'space-between',
         paddingHorizontal: 16,
-        borderRadius: 12,
+        marginTop: 20,
+        marginBottom: 8,
     },
-    newBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
-    searchRow: { paddingHorizontal: 14, marginBottom: 8 },
-    searchInput: {
-        borderWidth: 1,
-        borderColor: '#e4e4e7',
-        borderRadius: 999,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        backgroundColor: '#fff',
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#111',
+    sectionLabel: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#9CA3AF',
+        textTransform: 'uppercase',
+        letterSpacing: 0.8,
+        paddingHorizontal: 16,
+        marginBottom: 8,
     },
-    muted: { fontSize: 12, fontWeight: '700', color: '#666', paddingHorizontal: 14, marginTop: 6 },
-    group: { marginBottom: 4 },
-    groupHeader: {
+    muted: { fontSize: 12, color: '#9CA3AF', paddingHorizontal: 16, marginTop: 6, fontStyle: 'italic' },
+    colorDot: { width: 9, height: 9, borderRadius: 5 },
+    // Notebook rows
+    notebookRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        backgroundColor: '#F9FAFB',
+        paddingVertical: 2,
+        paddingLeft: 16,
         borderBottomWidth: 1,
         borderBottomColor: '#F3F4F6',
     },
-    colorDot: { width: 8, height: 8, borderRadius: 4 },
-    groupTitle: { fontSize: 13, fontWeight: '800', color: '#4B5563', flex: 1 },
-    noteItem: {
-        paddingVertical: 10,
-        paddingHorizontal: 20,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f3f4f6',
-        backgroundColor: '#fff',
+    notebookRowSelected: { backgroundColor: '#EEF2FF' },
+    // flex: 1 but with paddingRight so it never reaches the delete button's zone
+    notebookRowPressable: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingRight: 8 },
+    notebookName: { flex: 1, fontSize: 14, fontWeight: '600', color: '#111' },
+    notebookNameSelected: { color: '#4F46E5', fontWeight: '700' },
+    notebookCount: { fontSize: 12, color: '#9CA3AF', fontWeight: '600' },
+    // Large tap target, absolutely clear of the row pressable
+    notebookDeleteBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+    // New notebook input
+    newNotebookRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginHorizontal: 16,
+        marginBottom: 8,
     },
-    noteTitle: { fontSize: 13, fontWeight: '700', color: '#111', marginBottom: 2 },
-    noteMeta: { fontSize: 11, color: '#9ca3af' },
+    newNotebookInput: {
+        flex: 1,
+        borderWidth: 1,
+        borderColor: '#6366F1',
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 7,
+        fontSize: 13,
+        color: '#111',
+        backgroundColor: '#FAFAFE',
+    },
+    newNotebookSave: {
+        backgroundColor: '#6366F1',
+        borderRadius: 8,
+        paddingVertical: 7,
+        paddingHorizontal: 14,
+    },
+    newNotebookSaveText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 })
