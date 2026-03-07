@@ -1,3 +1,5 @@
+import { MarkdownView } from '@/components/MarkdownView'
+import { supabase } from '@/lib/supabase'
 import { Ionicons, MaterialIcons } from '@expo/vector-icons'
 import type { Session } from '@supabase/supabase-js'
 import { BlurView } from 'expo-blur'
@@ -20,11 +22,10 @@ import {
     StyleSheet,
     Text,
     TextInput,
+    TouchableOpacity,
     useWindowDimensions,
     View,
 } from 'react-native'
-import { MarkdownView } from '@/components/MarkdownView'
-import { supabase } from '@/lib/supabase'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,14 @@ const PERSONA_HELP: Record<PersonaId, string> = {
     Summarize: 'Short, clear summary with key points',
     Academic: 'Structured, analytical, citation-friendly tone',
 }
+
+const NOTEBOOK_COLORS = [
+    '#fa6963', '#00a294', '#3461cd', '#db9c2a',
+    '#e53856', '#22C55E', '#56a64b', '#00aab3',
+    '#627dcd', '#9b1fb2', '#cc3b8e', '#687d85',
+    '#f43f5e', '#a855f7', '#6366f1', '#f59e0b',
+    '#84cc16', '#06b6d4', '#d946ef', '#64748b'
+]
 
 // ─── Editor styles (defined here so PersonaPill can reference them) ────────────
 
@@ -438,24 +447,35 @@ function NoteRow({
     }
 
     const preview = (note.raw_content ?? '').trim().replace(/\s+/g, ' ')
+    const isWeb = Platform.OS === 'web'
 
     return (
-        <View style={rowStyles.container}>
-            <Pressable style={rowStyles.pressable} onPress={onPress}>
-                <View style={rowStyles.dot} />
-                <View style={rowStyles.content}>
-                    <Text style={rowStyles.title} numberOfLines={1}>{note.title || 'Untitled'}</Text>
-                    {preview.length > 0 && (
-                        <Text style={rowStyles.preview} numberOfLines={2}>{preview}</Text>
+        <View style={[rowStyles.container, isWeb && rowStyles.cardContainer]}>
+            <Pressable style={[rowStyles.pressable, isWeb && rowStyles.cardPressable]} onPress={onPress}>
+                {!isWeb && <View style={rowStyles.dot} />}
+                <View style={[rowStyles.content, isWeb && rowStyles.cardContent]}>
+                    {isWeb ? (
+                        <Text style={rowStyles.cardPreview} numberOfLines={4}>
+                            {note.raw_content?.trim() || note.title || 'Untitled'}
+                        </Text>
+                    ) : (
+                        <>
+                            <Text style={rowStyles.title} numberOfLines={1}>{note.title || 'Untitled'}</Text>
+                            {preview.length > 0 && (
+                                <Text style={rowStyles.preview} numberOfLines={2}>{preview}</Text>
+                            )}
+                        </>
                     )}
-                    <Text style={rowStyles.meta}>{timeAgo(note.updated_at)}</Text>
+                    <Text style={[rowStyles.meta, isWeb && rowStyles.cardMeta]}>
+                        {isWeb ? (note.updated_at.substring(0, 10)) : timeAgo(note.updated_at)}
+                    </Text>
                 </View>
             </Pressable>
             <Pressable
                 ref={moreBtnRef}
                 hitSlop={10}
                 onPress={handleMorePress}
-                style={rowStyles.moreBtn}
+                style={[rowStyles.moreBtn, isWeb && rowStyles.cardMoreBtn]}
             >
                 <Ionicons name="ellipsis-vertical" size={18} color="#aaa" />
             </Pressable>
@@ -485,6 +505,15 @@ export default function ThoughtsScreen() {
     const [newNotebookName, setNewNotebookName] = useState('')
     const [showNewNotebookInput, setShowNewNotebookInput] = useState(false)
     const [creatingNotebook, setCreatingNotebook] = useState(false)
+    const [notebookMenuTarget, setNotebookMenuTarget] = useState<Notebook | null>(null)
+    const [notebookMenuAnchor, setNotebookMenuAnchor] = useState<{ x: number; y: number } | null>(null)
+    const [notebookToDelete, setNotebookToDelete] = useState<Notebook | null>(null)
+    const [colorModalTarget, setColorModalTarget] = useState<Notebook | null>(null)
+    const [selectedColor, setSelectedColor] = useState<string | null>(null)
+
+    // User Profile
+    const [profileName, setProfileName] = useState<string>('')
+    const isWeb = Platform.OS === 'web'
 
     // Popover
     const [popoverMode, setPopoverMode] = useState<'actions' | 'picker' | null>(null)
@@ -533,6 +562,9 @@ export default function ThoughtsScreen() {
     const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
         const { data: { session: s } } = await supabase.auth.getSession()
         if (!s?.user) { setLoading(false); return }
+
+        const { data: profileData } = await supabase.from('profiles').select('display_name').eq('id', s.user.id).single()
+        if (profileData?.display_name) setProfileName(profileData.display_name)
 
         if (!opts?.silent) setLoading(true)
 
@@ -652,17 +684,23 @@ export default function ThoughtsScreen() {
         if (!noteActionsTarget) return
         const note = noteActionsTarget
         setPopoverMode(null)
-        Alert.alert(`Delete "${note.title || 'Untitled'}"?`, 'This action cannot be undone.', [
-            { text: 'Cancel', style: 'cancel' },
-            {
-                text: 'Delete', style: 'destructive',
-                onPress: async () => {
-                    const { error } = await supabase.from('notes').delete().eq('id', note.id)
-                    if (error) { Alert.alert('Error', error.message); return }
-                    fetchData()
-                },
-            },
-        ])
+
+        const doDelete = async () => {
+            const { error } = await supabase.from('notes').delete().eq('id', note.id)
+            if (error) { Alert.alert('Error', error.message); return }
+            fetchData()
+        }
+
+        if (Platform.OS === 'web') {
+            if (window.confirm(`Delete "${note.title || 'Untitled'}"?\nThis action cannot be undone.`)) {
+                doDelete()
+            }
+        } else {
+            Alert.alert(`Delete "${note.title || 'Untitled'}"?`, 'This action cannot be undone.', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete', style: 'destructive', onPress: doDelete },
+            ])
+        }
     }
 
     const handleAssignNotebook = async (targetNotebookId: string | null) => {
@@ -689,21 +727,30 @@ export default function ThoughtsScreen() {
     }
 
     const handleDeleteNotebook = (nb: Notebook) => {
-        Alert.alert(
-            `Delete "${nb.name}"?`,
-            'Notes in this notebook will move to General Notes.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Delete', style: 'destructive',
-                    onPress: async () => {
-                        const { error } = await supabase.from('notebooks').delete().eq('id', nb.id)
-                        if (error) { Alert.alert('Error', error.message); return }
-                        fetchData({ silent: true })
-                    },
-                },
-            ],
-        )
+        setNotebookMenuTarget(null)
+        setNotebookToDelete(nb)
+    }
+
+    const confirmDeleteNotebook = async () => {
+        if (!notebookToDelete) return
+        const nb = notebookToDelete
+
+        const { error: moveError } = await supabase.from('notes').update({ notebook_id: null }).eq('notebook_id', nb.id)
+        if (moveError) { Alert.alert('Error', moveError.message); return }
+
+        const { error } = await supabase.from('notebooks').delete().eq('id', nb.id)
+        if (error) { Alert.alert('Error', error.message); return }
+
+        if (selectedNotebookId === nb.id) setSelectedNotebookId(null)
+        setNotebookToDelete(null)
+        fetchData({ silent: true })
+    }
+
+    const handleNotebookColorChange = async (nb: Notebook, color: string) => {
+        const { error } = await supabase.from('notebooks').update({ colour_tag: color }).eq('id', nb.id)
+        if (error) { Alert.alert('Error', error.message); return }
+        setNotebooks(prev => prev.map(n => n.id === nb.id ? { ...n, colour_tag: color } : n))
+        setNotebookMenuTarget(null)
     }
 
     // ─── Editor open / close ──────────────────────────────────────────────────
@@ -740,8 +787,10 @@ export default function ThoughtsScreen() {
                         ? { ...n, title: editorTitle || null, raw_content: editorContent || null, updated_at: nowIso }
                         : n
                     )
-                    : [{ id: editorNoteId, title: editorTitle || null, raw_content: editorContent || null,
-                         updated_at: nowIso, created_at: nowIso, notebook_id: editorNotebookId }, ...prev]
+                    : [{
+                        id: editorNoteId, title: editorTitle || null, raw_content: editorContent || null,
+                        updated_at: nowIso, created_at: nowIso, notebook_id: editorNotebookId
+                    }, ...prev]
                 return patched.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
             })
         }
@@ -969,392 +1018,628 @@ export default function ThoughtsScreen() {
         return Math.max(1, Math.ceil(wordCount / 200))
     }, [wordCount])
 
+    const contentWidth = isWeb ? windowWidth - 320 : windowWidth
+
     const editorTranslateX = editorSlideAnim.interpolate({
         inputRange: [0, 1],
-        outputRange: [0, -windowWidth],
+        outputRange: [0, -contentWidth],
     })
 
     // ─── Render ───────────────────────────────────────────────────────────────
 
-    return (
-        <View style={styles.screen}>
-            <Stack.Screen options={{ headerShown: false }} />
+    const SidebarMarkup = (
+        <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+            <Pressable
+                style={[
+                    drawerStyles.notebookRow,
+                    isWeb && { borderBottomWidth: 0, paddingVertical: 10, marginHorizontal: 8, borderRadius: 8, marginTop: 8, overflow: 'hidden' },
+                    !isWeb && selectedNotebookId === null && drawerStyles.notebookRowSelected
+                ]}
+                onPress={() => { setSelectedNotebookId(null); if (!isWeb) closeDrawer() }}
+            >
+                {isWeb && selectedNotebookId === null && (
+                    <LinearGradient colors={['#a855f7', '#6366f1']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+                )}
+                <Ionicons name="layers-outline" size={16} color={selectedNotebookId === null ? (isWeb ? '#fff' : '#6366F1') : '#6B7280'} />
+                <Text style={[{ marginLeft: 10 }, drawerStyles.notebookName, selectedNotebookId === null && (isWeb ? drawerStyles.notebookNameSelectedWeb : drawerStyles.notebookNameSelected)]}>
+                    All Notes
+                </Text>
+                <Text style={[drawerStyles.notebookCount, selectedNotebookId === null && isWeb && drawerStyles.notebookCountSelectedWeb]}>{notes.length}</Text>
+            </Pressable>
 
-            {/* ── Toolbar (always at top, never animated) ── */}
-            {session?.user && !loading && (
-                <View style={styles.toolbar}>
+            <View style={drawerStyles.sectionHeader}>
+                <Text style={drawerStyles.sectionLabel}>Notebooks</Text>
+                <Pressable
+                    hitSlop={8}
+                    onPress={() => {
+                        setShowNewNotebookInput(v => !v)
+                        setNewNotebookName('')
+                    }}
+                >
+                    <Ionicons name={showNewNotebookInput ? 'close' : 'add'} size={20} color={isWeb ? '#9ca3af' : '#6366F1'} />
+                </Pressable>
+            </View>
+
+            {showNewNotebookInput && (
+                <View style={drawerStyles.newNotebookRow}>
+                    <TextInput
+                        style={drawerStyles.newNotebookInput}
+                        placeholder="Notebook name…"
+                        placeholderTextColor="#9ca3af"
+                        value={newNotebookName}
+                        onChangeText={setNewNotebookName}
+                        autoFocus
+                        autoCapitalize="words"
+                        returnKeyType="done"
+                        onSubmitEditing={handleCreateNotebook}
+                    />
                     <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Manage notebooks"
-                        onPress={openDrawer}
-                        style={styles.toolbarMenuBtn}
+                        style={[drawerStyles.newNotebookSave, (!newNotebookName.trim() || creatingNotebook) && { opacity: 0.4 }]}
+                        onPress={handleCreateNotebook}
+                        disabled={!newNotebookName.trim() || creatingNotebook}
                     >
-                        <MaterialIcons name="menu" size={24} color="#111" />
-                    </Pressable>
-                    <Pressable style={styles.newNoteBtn} onPress={() => openEditor()}>
-                        <Ionicons name="add" size={18} color="#fff" />
-                        <Text style={styles.newNoteBtnText}>New Thought</Text>
+                        {creatingNotebook
+                            ? <ActivityIndicator size="small" color="#fff" />
+                            : <Text style={drawerStyles.newNotebookSaveText}>Add</Text>
+                        }
                     </Pressable>
                 </View>
             )}
 
-            {/* ── Two-panel container (clips overflow so panel 2 is hidden until slid in) ── */}
-            <View style={{ flex: 1, overflow: 'hidden' }}>
-                <Animated.View
-                    style={{
-                        flex: 1,
-                        flexDirection: 'row',
-                        width: windowWidth * 2,
-                        transform: [{ translateX: editorTranslateX }],
-                    }}
-                >
-                    {/* ── Panel 1: Notes list ── */}
-                    <View style={{ width: windowWidth, flex: 1 }}>
-                        {loading ? (
-                            <View style={styles.center}>
-                                <ActivityIndicator size="large" color="#6366F1" />
-                            </View>
-                        ) : !session?.user ? (
-                            <View style={styles.center}>
-                                <Ionicons name="lock-closed-outline" size={48} color="#ddd" />
-                                <Text style={styles.emptyTitle}>Sign in to see your thoughts</Text>
-                            </View>
-                        ) : notes.length === 0 ? (
-                            <View style={styles.center}>
-                                <Ionicons name="document-text-outline" size={56} color="#e0e0e0" />
-                                <Text style={styles.emptyTitle}>No thoughts yet</Text>
-                                <Text style={styles.emptySubtitle}>Tap + to capture your first thought.</Text>
-                                <Pressable style={styles.createBtn} onPress={() => openEditor()}>
-                                    <Ionicons name="add" size={18} color="#fff" />
-                                    <Text style={styles.createBtnText}>New Thought</Text>
-                                </Pressable>
-                            </View>
-                        ) : (
-                            <View style={{ flex: 1 }}>
-                                {/* Filter label + count */}
-                                <View style={styles.listHeader}>
-                                    <Text style={styles.listHeaderLabel}>
-                                        {selectedNotebookId
-                                            ? (notebooks.find(nb => nb.id === selectedNotebookId)?.name ?? 'Notebook')
-                                            : 'All Notes'}
-                                    </Text>
-                                    <Text style={styles.listHeaderCount}>{filteredNotes.length}</Text>
-                                </View>
+            {notebooks.length === 0 ? (
+                <Text style={drawerStyles.muted}>No notebooks yet — tap + to create one.</Text>
+            ) : (
+                notebooks.map(nb => (
+                    <View
+                        key={nb.id}
+                        style={[
+                            drawerStyles.notebookRow,
+                            isWeb && { borderBottomWidth: 0, marginHorizontal: 8, borderRadius: 8, overflow: 'hidden' },
+                            !isWeb && selectedNotebookId === nb.id && drawerStyles.notebookRowSelected,
+                            !isWeb && notebookMenuTarget?.id === nb.id && drawerStyles.notebookRowHighlighted
+                        ]}
+                    >
+                        {isWeb && selectedNotebookId === nb.id && (
+                            <LinearGradient colors={['#a855f7', '#6366f1']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+                        )}
+                        <Pressable
+                            style={drawerStyles.notebookRowPressable}
+                            onPress={() => { setSelectedNotebookId(nb.id); if (!isWeb) closeDrawer() }}
+                        >
+                            <View style={[drawerStyles.colorDot, { backgroundColor: nb.colour_tag || '#d1d5db' }, isWeb && selectedNotebookId === nb.id && { borderColor: 'rgba(255,255,255,0.4)', borderWidth: 1 }]} />
+                            <Text style={[drawerStyles.notebookName, selectedNotebookId === nb.id && (isWeb ? drawerStyles.notebookNameSelectedWeb : drawerStyles.notebookNameSelected)]} numberOfLines={1}>
+                                {nb.name}
+                            </Text>
+                            <Text style={[drawerStyles.notebookCount, selectedNotebookId === nb.id && isWeb && drawerStyles.notebookCountSelectedWeb]}>
+                                {notes.filter(n => n.notebook_id === nb.id).length}
+                            </Text>
+                        </Pressable>
+                        <TouchableOpacity
+                            onPress={(e) => {
+                                const x = e.nativeEvent.pageX ?? windowWidth / 2
+                                const y = e.nativeEvent.pageY ?? windowHeight / 2
+                                setNotebookMenuTarget(nb)
+                                setNotebookMenuAnchor({ x, y })
+                            }}
+                            style={[
+                                drawerStyles.notebookMenuBtn,
+                                (notebookMenuTarget?.id === nb.id) && drawerStyles.notebookMenuBtnActive
+                            ]}
+                            activeOpacity={0.5}
+                        >
+                            <Ionicons name="ellipsis-vertical" size={16} color={selectedNotebookId === nb.id && isWeb ? "rgba(255,255,255,0.7)" : "#9CA3AF"} />
+                        </TouchableOpacity>
+                    </View>
+                ))
+            )}
+        </ScrollView>
+    )
 
-                                {/* Always-visible search bar */}
-                                <View style={styles.searchBarRow}>
-                                    <Ionicons name="search" size={15} color="#9ca3af" style={{ marginLeft: 12 }} />
+    return (
+        <View style={[styles.screen, isWeb && { flexDirection: 'row' }]}>
+            <Stack.Screen options={{ headerShown: false }} />
+
+            {isWeb && session?.user && !loading && (
+                <View style={drawerStyles.webSidebar}>
+                    <LinearGradient colors={['#a855f7', '#6366f1']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={drawerStyles.webUserProfile}>
+                        <View style={drawerStyles.webBackRow}>
+                            <Pressable style={drawerStyles.webBackBtn}>
+                                <Ionicons name="arrow-back" size={20} color="#fff" />
+                                <Text style={drawerStyles.webBackText}>Back</Text>
+                            </Pressable>
+                            <Pressable>
+                                <Ionicons name="ellipsis-horizontal" size={20} color="#fff" />
+                            </Pressable>
+                        </View>
+                        <View style={drawerStyles.webUserRow}>
+                            <View style={drawerStyles.webAvatar}>
+                                <Text style={drawerStyles.webAvatarText}>{profileName ? profileName.substring(0, 2).toUpperCase() : 'DI'}</Text>
+                            </View>
+                            <View style={drawerStyles.webUserInfo}>
+                                <Text style={drawerStyles.webAppTitle}>Aero Agent</Text>
+                                <Text style={drawerStyles.webUserName}>{profileName || 'Ding-Ze Hu'}</Text>
+                                <Text style={drawerStyles.webUserEmail} numberOfLines={1}>{session?.user?.email}</Text>
+                            </View>
+                        </View>
+                    </LinearGradient>
+
+                    <View style={drawerStyles.webManageRow}>
+                        <Text style={drawerStyles.title}>Manage</Text>
+                    </View>
+
+                    {SidebarMarkup}
+                </View>
+            )}
+
+            <View style={{ flex: 1, flexDirection: 'column' }}>
+                {/* ── Toolbar (always at top, never animated) ── */}
+                {session?.user && !loading && (
+                    <View style={[styles.toolbar, isWeb && styles.toolbarWeb]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: isWeb ? 1 : undefined }}>
+                            {!isWeb && (
+                                <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Manage notebooks"
+                                    onPress={openDrawer}
+                                    style={styles.toolbarMenuBtn}
+                                >
+                                    <MaterialIcons name="menu" size={24} color="#111" />
+                                </Pressable>
+                            )}
+                            {isWeb && (
+                                <View style={styles.webToolbarSearch}>
+                                    <Ionicons name="search" size={18} color="#9ca3af" />
                                     <TextInput
-                                        style={styles.searchBarInput}
-                                        placeholder={selectedNotebookId
-                                            ? `Search in ${notebooks.find(nb => nb.id === selectedNotebookId)?.name ?? 'notebook'}…`
-                                            : 'Search all notes…'}
+                                        style={styles.searchBarInputWeb}
+                                        placeholder="Search Search"
                                         placeholderTextColor="#9ca3af"
                                         value={mainSearch}
                                         onChangeText={setMainSearch}
                                         autoCapitalize="none"
                                         autoCorrect={false}
                                         returnKeyType="search"
-                                        clearButtonMode="while-editing"
                                     />
                                 </View>
-
-                                {/* Flat note list */}
-                                {filteredNotes.length === 0 ? (
-                                    <View style={styles.center}>
-                                        <Ionicons name="search-outline" size={40} color="#e0e0e0" />
-                                        <Text style={styles.emptyTitle}>
-                                            {mainSearch.trim() ? `No results for "${mainSearch}"` : 'No notes here'}
-                                        </Text>
-                                    </View>
-                                ) : (
-                                    <ScrollView contentContainerStyle={styles.list}>
-                                        {filteredNotes.map(note => (
-                                            <NoteRow
-                                                key={note.id}
-                                                note={note}
-                                                onPress={() => openEditor(note)}
-                                                onMorePress={(anchor) => openNoteActionsAt(note, anchor)}
-                                            />
-                                        ))}
-                                    </ScrollView>
-                                )}
+                            )}
+                        </View>
+                        {!isWeb ? (
+                            <Pressable style={styles.newNoteBtn} onPress={() => openEditor()}>
+                                <Ionicons name="add" size={18} color="#fff" />
+                                <Text style={styles.newNoteBtnText}>New Thought</Text>
+                            </Pressable>
+                        ) : (
+                            <View style={drawerStyles.webToolbarActions}>
+                                <Pressable style={{ padding: 8 }}><Ionicons name="help-circle-outline" size={24} color="#9ca3af" /></Pressable>
+                                <Pressable style={{ padding: 8 }} onPress={() => supabase.auth.signOut()}><Ionicons name="log-out-outline" size={24} color="#9ca3af" /></Pressable>
                             </View>
                         )}
                     </View>
+                )}
 
-                    {/* ── Panel 2: Inline editor ── */}
-                    <KeyboardAvoidingView
-                        style={{ width: windowWidth, flex: 1 }}
-                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                        pointerEvents={editorVisible ? 'auto' : 'none'}
+                {/* ── Two-panel container (clips overflow so panel 2 is hidden until slid in) ── */}
+                <View style={{ flex: 1, overflow: 'hidden' }}>
+                    <Animated.View
+                        style={{
+                            flex: 1,
+                            flexDirection: 'row',
+                            width: contentWidth * 2,
+                            transform: [{ translateX: editorTranslateX }],
+                        }}
                     >
-                        <View style={editorStyles.screen}>
-                            {/* Back row */}
-                            <View style={editorStyles.backRow}>
-                                <Pressable style={editorStyles.backBtn} onPress={closeEditor}>
-                                    <Ionicons name="arrow-back" size={20} color="#6366F1" />
-                                    <Text style={editorStyles.backBtnText}>Thoughts</Text>
-                                </Pressable>
-                                <View pointerEvents="none" style={editorStyles.autosaveBadge}>
-                                    {autosaveState === 'syncing' ? (
-                                        <ActivityIndicator size="small" color="#9CA3AF" />
-                                    ) : autosaveState === 'saved' ? (
-                                        <Animated.View
-                                            style={[
-                                                editorStyles.autosaveDot,
-                                                { transform: [{ scale: autosavePulseScale }], opacity: autosavePulseOpacity },
-                                            ]}
-                                        />
-                                    ) : autosaveState === 'dirty' ? (
-                                        <MaterialIcons name="fiber-manual-record" size={10} color="#9CA3AF" />
-                                    ) : null}
+                        {/* ── Panel 1: Notes list ── */}
+                        <View style={{ width: contentWidth, flex: 1 }}>
+                            {loading ? (
+                                <View style={styles.center}>
+                                    <ActivityIndicator size="large" color="#6366F1" />
                                 </View>
-                            </View>
-
-                            {/* Top section: title + raw notes */}
-                            <View style={editorStyles.topSection}>
-                                <Text style={editorStyles.label}>Note Title</Text>
-                                <TextInput
-                                    style={editorStyles.titleInput}
-                                    placeholder="Type a title…"
-                                    value={editorTitle}
-                                    onChangeText={setEditorTitle}
-                                    autoCapitalize="sentences"
-                                    returnKeyType="done"
-                                />
-                                <Text style={[editorStyles.label, { marginTop: 12 }]}>Raw Notes</Text>
-                                <View style={editorStyles.rawInputWrap}>
-                                    <TextInput
-                                        style={editorStyles.rawInput}
-                                        placeholder="Type your messy thoughts here…"
-                                        value={editorContent}
-                                        onChangeText={setEditorContent}
-                                        multiline
-                                        autoFocus={false}
-                                        textAlignVertical="top"
-                                    />
+                            ) : !session?.user ? (
+                                <View style={styles.center}>
+                                    <Ionicons name="lock-closed-outline" size={48} color="#ddd" />
+                                    <Text style={styles.emptyTitle}>Sign in to see your thoughts</Text>
                                 </View>
-                            </View>
-
-                            {/* Magic Bar */}
-                            <View style={editorStyles.magicBar}>
-                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={editorStyles.magicBarContent}>
-                                    {PERSONAS.map(p => {
-                                        const active = editorStyle === p.id
-                                        const label = styling && active ? 'Styling…' : p.label
-                                        return (
-                                            <PersonaPill
-                                                key={p.id}
-                                                label={label}
-                                                help={PERSONA_HELP[p.id]}
-                                                active={active}
-                                                disabled={styling}
-                                                onPress={async () => {
-                                                    if (Platform.OS !== 'web') {
-                                                        try { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light) } catch { }
-                                                    }
-                                                    setIsPreviewingAI(editorContent.trim() ? true : false)
-                                                    runAiStyling(p.id)
-                                                }}
-                                            />
-                                        )
-                                    })}
-                                </ScrollView>
-                            </View>
-
-                            {/* Canvas */}
-                            <View style={editorStyles.canvas}>
-                                <Text style={editorStyles.canvasLabel}>AI STYLED PREVIEW</Text>
-                                {aiError ? <Text style={editorStyles.aiErrorText}>{aiError}</Text> : null}
-
-                                <View style={[editorStyles.card, isPreviewingAI && editorStyles.cardAiMode]}>
-                                    {isPreviewingAI ? (
-                                        <View style={editorStyles.cardAiTopRow}>
-                                            <View style={editorStyles.aiBadge}>
-                                                <Text style={editorStyles.aiBadgeText}>✨ AI Generated</Text>
-                                            </View>
-                                            <Pressable
-                                                accessibilityRole="button"
-                                                accessibilityLabel="Back to draft"
-                                                onPress={() => setIsPreviewingAI(false)}
-                                                style={editorStyles.backToDraftButton}
-                                            >
-                                                <MaterialIcons name="undo" size={16} color="#374151" />
-                                                <Text style={editorStyles.backToDraftText}>Back to Draft</Text>
-                                            </Pressable>
-                                        </View>
-                                    ) : null}
-
-                                    <ScrollView style={editorStyles.cardBody} keyboardShouldPersistTaps="handled">
-                                        {styling ? (
-                                            <View style={editorStyles.skeletonWrap}>
-                                                <View style={editorStyles.skeletonBar} />
-                                                <View style={editorStyles.skeletonBarWide} />
-                                                <View style={editorStyles.skeletonBar} />
-                                                <View style={editorStyles.skeletonBarWide} />
-                                                <Animated.View style={[editorStyles.skeletonShimmer, { transform: [{ translateX: skeletonTranslateX }] }]} />
-                                            </View>
-                                        ) : !previewMarkdown.trim() ? (
-                                            <View style={editorStyles.previewEmpty}>
-                                                <View style={editorStyles.previewEmptyIcon}>
-                                                    <Sparkles size={28} color="#6366F1" />
-                                                </View>
-                                                <Text style={editorStyles.previewEmptyTitle}>Ready to transform</Text>
-                                                <Text style={editorStyles.previewEmptySubtitle}>
-                                                    Select a persona above to transform your thoughts.
-                                                </Text>
-                                            </View>
-                                        ) : (
-                                            <MarkdownView markdown={previewMarkdown} />
-                                        )}
-                                    </ScrollView>
-
-                                    <View style={editorStyles.cardFooterRow}>
-                                        <Text style={editorStyles.cardMetaText}>
-                                            {wordCount ? `${wordCount} words • ${readingTimeMinutes} min read` : '—'}
+                            ) : notes.length === 0 ? (
+                                <View style={styles.center}>
+                                    <Ionicons name="document-text-outline" size={56} color="#e0e0e0" />
+                                    <Text style={styles.emptyTitle}>No thoughts yet</Text>
+                                    <Text style={styles.emptySubtitle}>Tap + to capture your first thought.</Text>
+                                    <Pressable style={styles.createBtn} onPress={() => openEditor()}>
+                                        <Ionicons name="add" size={18} color="#fff" />
+                                        <Text style={styles.createBtnText}>New Thought</Text>
+                                    </Pressable>
+                                </View>
+                            ) : (
+                                <View style={{ flex: 1, backgroundColor: isWeb ? '#fafafa' : '#fff' }}>
+                                    {/* Filter label + count */}
+                                    <View style={[styles.listHeader, isWeb && styles.listHeaderWeb]}>
+                                        <Text style={[styles.listHeaderLabel, isWeb && styles.listHeaderLabelWeb]}>
+                                            {selectedNotebookId
+                                                ? (isWeb ? `Notes in "${notebooks.find(nb => nb.id === selectedNotebookId)?.name ?? 'Notebook'}"` : notebooks.find(nb => nb.id === selectedNotebookId)?.name ?? 'Notebook')
+                                                : 'All Notes'}
                                         </Text>
-                                        <View style={editorStyles.cardActionsRow}>
-                                            <Pressable
+                                        {!isWeb && <Text style={styles.listHeaderCount}>{filteredNotes.length}</Text>}
+                                    </View>
+
+                                    {/* Always-visible search bar (mobile only) */}
+                                    {!isWeb && (
+                                        <View style={styles.searchBarRow}>
+                                            <Ionicons name="search" size={15} color="#9ca3af" style={{ marginLeft: 12 }} />
+                                            <TextInput
+                                                style={styles.searchBarInput}
+                                                placeholder={selectedNotebookId
+                                                    ? `Search in ${notebooks.find(nb => nb.id === selectedNotebookId)?.name ?? 'notebook'}…`
+                                                    : 'Search all notes…'}
+                                                placeholderTextColor="#9ca3af"
+                                                value={mainSearch}
+                                                onChangeText={setMainSearch}
+                                                autoCapitalize="none"
+                                                autoCorrect={false}
+                                                returnKeyType="search"
+                                                clearButtonMode="while-editing"
+                                            />
+                                        </View>
+                                    )}
+
+                                    {/* Flat note list */}
+                                    {filteredNotes.length === 0 ? (
+                                        <View style={styles.center}>
+                                            <Ionicons name="search-outline" size={40} color="#e0e0e0" />
+                                            <Text style={styles.emptyTitle}>
+                                                {mainSearch.trim() ? `No results for "${mainSearch}"` : 'No notes here'}
+                                            </Text>
+                                        </View>
+                                    ) : (
+                                        <ScrollView contentContainerStyle={[styles.list, isWeb && styles.listWeb]}>
+                                            {filteredNotes.map(note => (
+                                                <NoteRow
+                                                    key={note.id}
+                                                    note={note}
+                                                    onPress={() => openEditor(note)}
+                                                    onMorePress={(anchor) => openNoteActionsAt(note, anchor)}
+                                                />
+                                            ))}
+                                        </ScrollView>
+                                    )}
+                                </View>
+                            )}
+                            {isWeb && session?.user && (
+                                <Pressable style={styles.fabWeb} onPress={() => openEditor()}>
+                                    <Ionicons name="add" size={24} color="#fff" />
+                                    <Text style={styles.fabWebText}>New Thought</Text>
+                                </Pressable>
+                            )}
+                        </View>
+
+                        {/* ── Panel 2: Inline editor ── */}
+                        <KeyboardAvoidingView
+                            style={{ width: contentWidth, flex: 1 }}
+                            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                            pointerEvents={editorVisible ? 'auto' : 'none'}
+                        >
+                            <View style={editorStyles.screen}>
+                                {/* Back row */}
+                                <View style={editorStyles.backRow}>
+                                    <Pressable style={editorStyles.backBtn} onPress={closeEditor}>
+                                        <Ionicons name="arrow-back" size={20} color="#6366F1" />
+                                        <Text style={editorStyles.backBtnText}>Thoughts</Text>
+                                    </Pressable>
+                                    <View pointerEvents="none" style={editorStyles.autosaveBadge}>
+                                        {autosaveState === 'syncing' ? (
+                                            <ActivityIndicator size="small" color="#9CA3AF" />
+                                        ) : autosaveState === 'saved' ? (
+                                            <Animated.View
                                                 style={[
-                                                    editorStyles.copyButton,
-                                                    copiedFlash && editorStyles.copyButtonCopied,
-                                                    (!previewMarkdown.trim() || styling) && editorStyles.disabled,
+                                                    editorStyles.autosaveDot,
+                                                    { transform: [{ scale: autosavePulseScale }], opacity: autosavePulseOpacity },
                                                 ]}
-                                                onPress={copyResult}
-                                                disabled={!previewMarkdown.trim() || styling}
-                                            >
-                                                <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-                                                <Text style={editorStyles.copyButtonText}>
-                                                    {copiedFlash ? 'Copied! ✅' : 'Copy Result'}
-                                                </Text>
-                                            </Pressable>
-                                            <Pressable
-                                                disabled
-                                                style={[editorStyles.shareButton, editorStyles.disabled]}
-                                                onPress={() => { }}
-                                            >
-                                                <MaterialIcons name="ios-share" size={18} color="#111827" />
-                                            </Pressable>
+                                            />
+                                        ) : autosaveState === 'dirty' ? (
+                                            <MaterialIcons name="fiber-manual-record" size={10} color="#9CA3AF" />
+                                        ) : null}
+                                    </View>
+                                </View>
+
+                                {/* Top section: title + raw notes */}
+                                <View style={editorStyles.topSection}>
+                                    <Text style={editorStyles.label}>Note Title</Text>
+                                    <TextInput
+                                        style={editorStyles.titleInput}
+                                        placeholder="Type a title…"
+                                        value={editorTitle}
+                                        onChangeText={setEditorTitle}
+                                        autoCapitalize="sentences"
+                                        returnKeyType="done"
+                                    />
+                                    <Text style={[editorStyles.label, { marginTop: 12 }]}>Raw Notes</Text>
+                                    <View style={editorStyles.rawInputWrap}>
+                                        <TextInput
+                                            style={editorStyles.rawInput}
+                                            placeholder="Type your messy thoughts here…"
+                                            value={editorContent}
+                                            onChangeText={setEditorContent}
+                                            multiline
+                                            autoFocus={false}
+                                            textAlignVertical="top"
+                                        />
+                                    </View>
+                                </View>
+
+                                {/* Magic Bar */}
+                                <View style={editorStyles.magicBar}>
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={editorStyles.magicBarContent}>
+                                        {PERSONAS.map(p => {
+                                            const active = editorStyle === p.id
+                                            const label = styling && active ? 'Styling…' : p.label
+                                            return (
+                                                <PersonaPill
+                                                    key={p.id}
+                                                    label={label}
+                                                    help={PERSONA_HELP[p.id]}
+                                                    active={active}
+                                                    disabled={styling}
+                                                    onPress={async () => {
+                                                        if (Platform.OS !== 'web') {
+                                                            try { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light) } catch { }
+                                                        }
+                                                        setIsPreviewingAI(editorContent.trim() ? true : false)
+                                                        runAiStyling(p.id)
+                                                    }}
+                                                />
+                                            )
+                                        })}
+                                    </ScrollView>
+                                </View>
+
+                                {/* Canvas */}
+                                <View style={editorStyles.canvas}>
+                                    <Text style={editorStyles.canvasLabel}>AI STYLED PREVIEW</Text>
+                                    {aiError ? <Text style={editorStyles.aiErrorText}>{aiError}</Text> : null}
+
+                                    <View style={[editorStyles.card, isPreviewingAI && editorStyles.cardAiMode]}>
+                                        {isPreviewingAI ? (
+                                            <View style={editorStyles.cardAiTopRow}>
+                                                <View style={editorStyles.aiBadge}>
+                                                    <Text style={editorStyles.aiBadgeText}>✨ AI Generated</Text>
+                                                </View>
+                                                <Pressable
+                                                    accessibilityRole="button"
+                                                    accessibilityLabel="Back to draft"
+                                                    onPress={() => setIsPreviewingAI(false)}
+                                                    style={editorStyles.backToDraftButton}
+                                                >
+                                                    <MaterialIcons name="undo" size={16} color="#374151" />
+                                                    <Text style={editorStyles.backToDraftText}>Back to Draft</Text>
+                                                </Pressable>
+                                            </View>
+                                        ) : null}
+
+                                        <ScrollView style={editorStyles.cardBody} keyboardShouldPersistTaps="handled">
+                                            {styling ? (
+                                                <View style={editorStyles.skeletonWrap}>
+                                                    <View style={editorStyles.skeletonBar} />
+                                                    <View style={editorStyles.skeletonBarWide} />
+                                                    <View style={editorStyles.skeletonBar} />
+                                                    <View style={editorStyles.skeletonBarWide} />
+                                                    <Animated.View style={[editorStyles.skeletonShimmer, { transform: [{ translateX: skeletonTranslateX }] }]} />
+                                                </View>
+                                            ) : !previewMarkdown.trim() ? (
+                                                <View style={editorStyles.previewEmpty}>
+                                                    <View style={editorStyles.previewEmptyIcon}>
+                                                        <Sparkles size={28} color="#6366F1" />
+                                                    </View>
+                                                    <Text style={editorStyles.previewEmptyTitle}>Ready to transform</Text>
+                                                    <Text style={editorStyles.previewEmptySubtitle}>
+                                                        Select a persona above to transform your thoughts.
+                                                    </Text>
+                                                </View>
+                                            ) : (
+                                                <MarkdownView markdown={previewMarkdown} />
+                                            )}
+                                        </ScrollView>
+
+                                        <View style={editorStyles.cardFooterRow}>
+                                            <Text style={editorStyles.cardMetaText}>
+                                                {wordCount ? `${wordCount} words • ${readingTimeMinutes} min read` : '—'}
+                                            </Text>
+                                            <View style={editorStyles.cardActionsRow}>
+                                                <Pressable
+                                                    style={[
+                                                        editorStyles.copyButton,
+                                                        copiedFlash && editorStyles.copyButtonCopied,
+                                                        (!previewMarkdown.trim() || styling) && editorStyles.disabled,
+                                                    ]}
+                                                    onPress={copyResult}
+                                                    disabled={!previewMarkdown.trim() || styling}
+                                                >
+                                                    <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+                                                    <Text style={editorStyles.copyButtonText}>
+                                                        {copiedFlash ? 'Copied! ✅' : 'Copy Result'}
+                                                    </Text>
+                                                </Pressable>
+                                                <Pressable
+                                                    disabled
+                                                    style={[editorStyles.shareButton, editorStyles.disabled]}
+                                                    onPress={() => { }}
+                                                >
+                                                    <MaterialIcons name="ios-share" size={18} color="#111827" />
+                                                </Pressable>
+                                            </View>
                                         </View>
                                     </View>
                                 </View>
                             </View>
-                        </View>
-                    </KeyboardAvoidingView>
-                </Animated.View>
+                        </KeyboardAvoidingView>
+                    </Animated.View>
+                </View>
             </View>
 
-            {/* ── Manage drawer (hamburger) — control panel, not a note list ── */}
-            <View pointerEvents={drawerVisible ? 'auto' : 'none'} style={StyleSheet.absoluteFillObject}>
-                <Animated.View style={[drawerStyles.backdrop, { opacity: drawerAnim }]} />
-                <Pressable style={StyleSheet.absoluteFillObject} onPress={closeDrawer} />
-                <Animated.View
-                    style={[
-                        drawerStyles.drawer,
-                        {
-                            transform: [{
-                                translateX: drawerAnim.interpolate({
-                                    inputRange: [0, 1], outputRange: [-320, 0],
-                                }),
-                            }],
-                        },
-                    ]}
-                >
-                    <View style={drawerStyles.topRow}>
-                        <Text style={drawerStyles.title}>Manage</Text>
-                        <Pressable hitSlop={10} style={drawerStyles.closeBtn} onPress={closeDrawer}>
-                            <Ionicons name="close" size={22} color="#111" />
-                        </Pressable>
-                    </View>
-
-                    <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
-                        {/* All Notes navigation item */}
-                        <Pressable
-                            style={[drawerStyles.notebookRow, selectedNotebookId === null && drawerStyles.notebookRowSelected]}
-                            onPress={() => { setSelectedNotebookId(null); closeDrawer() }}
-                        >
-                            <Ionicons name="layers-outline" size={16} color={selectedNotebookId === null ? '#6366F1' : '#6B7280'} />
-                            <Text style={[drawerStyles.notebookName, selectedNotebookId === null && drawerStyles.notebookNameSelected]}>
-                                All Notes
-                            </Text>
-                            <Text style={drawerStyles.notebookCount}>{notes.length}</Text>
-                        </Pressable>
-
-                        {/* Notebooks section header */}
-                        <View style={drawerStyles.sectionHeader}>
-                            <Text style={drawerStyles.sectionLabel}>Notebooks</Text>
-                            <Pressable
-                                hitSlop={8}
-                                onPress={() => {
-                                    setShowNewNotebookInput(v => !v)
-                                    setNewNotebookName('')
-                                }}
-                            >
-                                <Ionicons name={showNewNotebookInput ? 'close' : 'add'} size={20} color="#6366F1" />
+            {/* ── Manage drawer (mobile) ── */}
+            {!isWeb && (
+                <View pointerEvents={drawerVisible ? 'auto' : 'none'} style={StyleSheet.absoluteFillObject}>
+                    <Animated.View style={[drawerStyles.backdrop, { opacity: drawerAnim }]} />
+                    <Pressable style={StyleSheet.absoluteFillObject} onPress={closeDrawer} />
+                    <Animated.View
+                        style={[
+                            drawerStyles.drawer,
+                            {
+                                transform: [{
+                                    translateX: drawerAnim.interpolate({
+                                        inputRange: [0, 1], outputRange: [-320, 0],
+                                    }),
+                                }],
+                            },
+                        ]}
+                    >
+                        <View style={drawerStyles.topRow}>
+                            <Text style={drawerStyles.title}>Manage</Text>
+                            <Pressable hitSlop={10} style={drawerStyles.closeBtn} onPress={closeDrawer}>
+                                <Ionicons name="close" size={22} color="#111" />
                             </Pressable>
                         </View>
+                        {SidebarMarkup}
+                    </Animated.View>
+                </View>
+            )}
 
-                        {showNewNotebookInput && (
-                            <View style={drawerStyles.newNotebookRow}>
-                                <TextInput
-                                    style={drawerStyles.newNotebookInput}
-                                    placeholder="Notebook name…"
-                                    placeholderTextColor="#9ca3af"
-                                    value={newNotebookName}
-                                    onChangeText={setNewNotebookName}
-                                    autoFocus
-                                    autoCapitalize="words"
-                                    returnKeyType="done"
-                                    onSubmitEditing={handleCreateNotebook}
-                                />
-                                <Pressable
-                                    style={[drawerStyles.newNotebookSave, (!newNotebookName.trim() || creatingNotebook) && { opacity: 0.4 }]}
-                                    onPress={handleCreateNotebook}
-                                    disabled={!newNotebookName.trim() || creatingNotebook}
-                                >
-                                    {creatingNotebook
-                                        ? <ActivityIndicator size="small" color="#fff" />
-                                        : <Text style={drawerStyles.newNotebookSaveText}>Add</Text>
-                                    }
-                                </Pressable>
+            {/* ── Notebook Context Menu ── */}
+            <Modal
+                transparent
+                visible={!!notebookMenuTarget}
+                animationType="fade"
+                onRequestClose={() => setNotebookMenuTarget(null)}
+            >
+                <View style={StyleSheet.absoluteFillObject}>
+                    <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setNotebookMenuTarget(null)} />
+                    {!!notebookMenuTarget && notebookMenuAnchor && (() => {
+                        const MENU_W = 220
+                        const left = isWeb
+                            ? notebookMenuAnchor.x + 20
+                            : Math.min(Math.max(notebookMenuAnchor.x - MENU_W + 40, 16), windowWidth - MENU_W - 16)
+                        const top = isWeb
+                            ? Math.max(notebookMenuAnchor.y - 32, 16)
+                            : Math.min(notebookMenuAnchor.y + 16, windowHeight - 200)
+
+                        return (
+                            <View style={[drawerStyles.contextMenuFloating, isWeb && drawerStyles.contextMenuFloatingWeb, { left, top, width: isWeb ? 160 : MENU_W }]}>
+                                {isWeb && <View style={drawerStyles.contextMenuTip} />}
+                                <>
+                                    {!isWeb && <Text style={drawerStyles.contextMenuFloatingTitle}>Notebook Options</Text>}
+                                    <Pressable
+                                        style={drawerStyles.contextMenuItem}
+                                        onPress={() => {
+                                            setColorModalTarget(notebookMenuTarget)
+                                            setSelectedColor(notebookMenuTarget.colour_tag || NOTEBOOK_COLORS[0])
+                                            setNotebookMenuTarget(null)
+                                        }}
+                                    >
+                                        <Ionicons name="color-palette" size={18} color="#4b5563" />
+                                        <Text style={drawerStyles.contextMenuItemText}>Change Color</Text>
+                                    </Pressable>
+                                    {!isWeb && <View style={drawerStyles.contextMenuDivider} />}
+                                    <Pressable
+                                        style={drawerStyles.contextMenuItem}
+                                        onPress={() => { handleDeleteNotebook(notebookMenuTarget) }}
+                                    >
+                                        <Ionicons name="trash" size={18} color="#ef4444" />
+                                        <Text style={[drawerStyles.contextMenuItemText, { color: '#ef4444' }]}>Delete</Text>
+                                    </Pressable>
+                                </>
                             </View>
-                        )}
+                        )
+                    })()}
+                </View>
+            </Modal>
 
-                        {notebooks.length === 0 ? (
-                            <Text style={drawerStyles.muted}>No notebooks yet — tap + to create one.</Text>
-                        ) : (
-                            notebooks.map(nb => (
-                                <View
-                                    key={nb.id}
-                                    style={[drawerStyles.notebookRow, selectedNotebookId === nb.id && drawerStyles.notebookRowSelected]}
+            {/* ── Notebook Color Change Picker Modal ── */}
+            <Modal
+                transparent
+                visible={!!colorModalTarget}
+                animationType="fade"
+                onRequestClose={() => setColorModalTarget(null)}
+            >
+                <View style={drawerStyles.deleteModalBackdrop}>
+                    <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setColorModalTarget(null)} />
+                    <Animated.View style={drawerStyles.colorModalContent}>
+                        <Text style={drawerStyles.colorModalTitle}>
+                            Change Color: {colorModalTarget?.name}
+                        </Text>
+                        <Text style={drawerStyles.colorModalMessage}>
+                            Select a new color for your notebook.
+                        </Text>
+                        <View style={drawerStyles.colorGrid}>
+                            {NOTEBOOK_COLORS.map(color => (
+                                <Pressable
+                                    key={color}
+                                    onPress={() => setSelectedColor(color)}
+                                    style={[
+                                        drawerStyles.colorSwatchLarge,
+                                        { backgroundColor: color },
+                                    ]}
                                 >
-                                    {/* Row pressable stops before the delete zone (paddingRight reserves space) */}
-                                    <Pressable
-                                        style={drawerStyles.notebookRowPressable}
-                                        onPress={() => { setSelectedNotebookId(nb.id); closeDrawer() }}
-                                    >
-                                        <View style={[drawerStyles.colorDot, { backgroundColor: nb.colour_tag || '#d1d5db' }]} />
-                                        <Text style={[drawerStyles.notebookName, selectedNotebookId === nb.id && drawerStyles.notebookNameSelected]} numberOfLines={1}>
-                                            {nb.name}
-                                        </Text>
-                                        <Text style={drawerStyles.notebookCount}>
-                                            {notes.filter(n => n.notebook_id === nb.id).length}
-                                        </Text>
-                                    </Pressable>
-                                    {/* Absolutely positioned delete button so it never overlaps the row pressable */}
-                                    <Pressable
-                                        onPress={() => handleDeleteNotebook(nb)}
-                                        style={drawerStyles.notebookDeleteBtn}
-                                    >
-                                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                                    </Pressable>
-                                </View>
-                            ))
-                        )}
-                    </ScrollView>
-                </Animated.View>
-            </View>
+                                    {selectedColor === color && (
+                                        <Ionicons name="checkmark" size={24} color="#fff" style={{ opacity: 0.9 }} />
+                                    )}
+                                </Pressable>
+                            ))}
+                        </View>
+                        <View style={drawerStyles.deleteModalActions}>
+                            <Pressable
+                                style={drawerStyles.deleteModalCancelBtn}
+                                onPress={() => setColorModalTarget(null)}
+                            >
+                                <Text style={[drawerStyles.deleteModalCancelText, { color: '#6d28d9' }]}>Cancel</Text>
+                            </Pressable>
+                            <Pressable
+                                style={[drawerStyles.deleteModalConfirmBtn, { backgroundColor: '#6d28d9' }]}
+                                onPress={() => {
+                                    if (colorModalTarget && selectedColor) {
+                                        handleNotebookColorChange(colorModalTarget, selectedColor)
+                                        setColorModalTarget(null)
+                                    }
+                                }}
+                            >
+                                <Text style={drawerStyles.deleteModalConfirmText}>Save</Text>
+                            </Pressable>
+                        </View>
+                    </Animated.View>
+                </View>
+            </Modal>
+
+            {/* ── Notebook Delete Confirmation Modal ── */}
+            <Modal
+                transparent
+                visible={!!notebookToDelete}
+                animationType="fade"
+                onRequestClose={() => setNotebookToDelete(null)}
+            >
+                <View style={drawerStyles.deleteModalBackdrop}>
+                    <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setNotebookToDelete(null)} />
+                    <Animated.View style={drawerStyles.deleteModalContent}>
+                        <View style={drawerStyles.deleteModalIconWrap}>
+                            <Ionicons name="warning-outline" size={36} color="#ef4444" />
+                        </View>
+                        <Text style={drawerStyles.deleteModalTitle}>
+                            Delete "{notebookToDelete?.name}"?
+                        </Text>
+                        <Text style={drawerStyles.deleteModalMessage}>
+                            Deleting this notebook will remove all {notebookToDelete ? notes.filter(n => n.notebook_id === notebookToDelete.id).length : 0} notes within it. This action cannot be undone.
+                        </Text>
+                        <View style={drawerStyles.deleteModalActions}>
+                            <Pressable
+                                style={drawerStyles.deleteModalCancelBtn}
+                                onPress={() => setNotebookToDelete(null)}
+                            >
+                                <Text style={drawerStyles.deleteModalCancelText}>Cancel</Text>
+                            </Pressable>
+                            <Pressable
+                                style={drawerStyles.deleteModalConfirmBtn}
+                                onPress={confirmDeleteNotebook}
+                            >
+                                <Text style={drawerStyles.deleteModalConfirmText}>Delete</Text>
+                            </Pressable>
+                        </View>
+                    </Animated.View>
+                </View>
+            </Modal>
 
             {/* ── Anchored Popover ── */}
             <Modal
@@ -1610,6 +1895,55 @@ const styles = StyleSheet.create({
         backgroundColor: '#eee',
         transform: [{ rotate: '45deg' }],
     },
+    toolbarWeb: {
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f3f4f6',
+        paddingHorizontal: 24,
+        paddingVertical: 14,
+    },
+    webToolbarSearch: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f9fafb',
+        borderRadius: 24,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        width: 320,
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+    },
+    searchBarInputWeb: {
+        flex: 1,
+        marginLeft: 10,
+        fontSize: 15,
+        color: '#111',
+    },
+    listHeaderWeb: {
+        paddingHorizontal: 32,
+        paddingTop: 32,
+        paddingBottom: 24,
+    },
+    listHeaderLabelWeb: { fontSize: 28, color: '#111', textTransform: 'none', letterSpacing: 0, fontWeight: '800' },
+    listWeb: { gap: 24, flexDirection: 'row', flexWrap: 'wrap', paddingLeft: 32 },
+    fabWeb: {
+        position: 'absolute',
+        bottom: 32,
+        right: 32,
+        backgroundColor: '#7c3aed',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 16,
+        paddingHorizontal: 24,
+        borderRadius: 32,
+        gap: 8,
+        shadowColor: '#7c3aed',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.4,
+        shadowRadius: 16,
+        elevation: 12,
+    },
+    fabWebText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 })
 
 // ─── Note row styles ──────────────────────────────────────────────────────────
@@ -1634,6 +1968,45 @@ const rowStyles = StyleSheet.create({
     preview: { fontSize: 12, color: '#6B7280', marginTop: 3, lineHeight: 17 },
     meta: { fontSize: 11, color: '#9ca3af', marginTop: 4 },
     moreBtn: { padding: 10 },
+    cardContainer: {
+        width: 174,
+        height: 220,
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+        borderRadius: 16,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        padding: 0,
+    },
+    cardPressable: {
+        flex: 1,
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        padding: 20,
+        paddingHorizontal: 20,
+    },
+    cardContent: {
+        flex: 1,
+        width: '100%',
+        justifyContent: 'space-between',
+    },
+    cardPreview: {
+        fontSize: 15,
+        color: '#374151',
+        lineHeight: 22,
+        paddingRight: 10,
+    },
+    cardMeta: {
+        fontSize: 13,
+        color: '#9ca3af',
+        marginTop: 0,
+    },
+    cardMoreBtn: {
+        position: 'absolute',
+        top: 20,
+        right: 12,
+        padding: 4,
+    },
 })
 
 // ─── Drawer styles ────────────────────────────────────────────────────────────
@@ -1671,6 +2044,43 @@ const drawerStyles = StyleSheet.create({
         marginBottom: 20,
         paddingHorizontal: 16,
     },
+    webSidebar: {
+        width: 320,
+        backgroundColor: '#fff',
+        borderRightWidth: 1,
+        borderRightColor: '#f3f4f6',
+        zIndex: 10,
+    },
+    webUserProfile: {
+        paddingVertical: 24,
+    },
+    webBackRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        marginBottom: 20,
+    },
+    webBackBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    webBackText: { color: '#fff', fontSize: 16 },
+    webUserRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, gap: 16 },
+    webAvatar: {
+        width: 64, height: 64, borderRadius: 32,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)',
+        alignItems: 'center', justifyContent: 'center',
+    },
+    webAvatarText: { color: '#fff', fontSize: 24, fontWeight: '700' },
+    webUserInfo: { flex: 1 },
+    webAppTitle: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+    webUserName: { color: '#fff', fontSize: 22, fontWeight: '700', marginTop: 2, marginBottom: 2 },
+    webUserEmail: { color: 'rgba(255,255,255,0.7)', fontSize: 14, maxWidth: 170 },
+    webManageRow: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 16 },
+    webToolbarActions: { flexDirection: 'row', gap: 8 },
     title: { fontSize: 18, fontWeight: '800', color: '#111' },
     closeBtn: { paddingHorizontal: 6, paddingVertical: 6, borderRadius: 999, backgroundColor: '#F3F4F6' },
     sectionHeader: {
@@ -1698,6 +2108,7 @@ const drawerStyles = StyleSheet.create({
         alignItems: 'center',
         paddingVertical: 2,
         paddingLeft: 16,
+        paddingRight: 20,
         borderBottomWidth: 1,
         borderBottomColor: '#F3F4F6',
     },
@@ -1706,9 +2117,90 @@ const drawerStyles = StyleSheet.create({
     notebookRowPressable: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingRight: 8 },
     notebookName: { flex: 1, fontSize: 14, fontWeight: '600', color: '#111' },
     notebookNameSelected: { color: '#4F46E5', fontWeight: '700' },
+    notebookNameSelectedWeb: { color: '#fff', fontWeight: '700' },
+    notebookCountSelectedWeb: { color: 'rgba(255,255,255,0.7)' },
     notebookCount: { fontSize: 12, color: '#9CA3AF', fontWeight: '600' },
-    // Large tap target, absolutely clear of the row pressable
-    notebookDeleteBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+    notebookMenuBtn: { width: 36, height: 44, alignItems: 'center', justifyContent: 'center' },
+    // Floating context menu
+    contextMenuFloating: {
+        position: 'absolute',
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        padding: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.15,
+        shadowRadius: 16,
+        elevation: 8,
+        borderWidth: 1,
+        borderColor: '#f4f4f5',
+    },
+    contextMenuFloatingWeb: {
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 10,
+    },
+    contextMenuTip: {
+        position: 'absolute',
+        top: 26,
+        left: -5,
+        width: 10,
+        height: 10,
+        backgroundColor: '#fff',
+        borderLeftWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: '#f4f4f5',
+        transform: [{ rotate: '45deg' }],
+    },
+    contextMenuFloatingTitle: { fontSize: 15, fontWeight: '700', color: '#111', marginBottom: 16 },
+    contextMenuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+    contextMenuItemText: { fontSize: 15, fontWeight: '600', color: '#111' },
+    contextMenuHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
+    contextMenuDivider: { height: 1, backgroundColor: '#f4f4f5', marginVertical: 6 },
+    notebookRowHighlighted: { backgroundColor: '#f3f4f6' },
+    notebookMenuBtnActive: { backgroundColor: '#e5e7eb', borderRadius: 16 },
+    notebookMenuOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' },
+    notebookMenuSheet: {
+        backgroundColor: '#fff',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingTop: 10,
+        paddingBottom: 32,
+        paddingHorizontal: 20,
+    },
+    notebookMenuHandle: {
+        width: 36, height: 4, borderRadius: 2, backgroundColor: '#E5E7EB',
+        alignSelf: 'center', marginBottom: 16,
+    },
+    notebookMenuTitle: { fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 16 },
+    notebookMenuSectionLabel: { fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.8, marginBottom: 10, textTransform: 'uppercase' },
+    notebookColorRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginBottom: 4 },
+    notebookColorSwatch: { width: 30, height: 30, borderRadius: 15 },
+    notebookColorSwatchSelected: { borderWidth: 3, borderColor: '#111' },
+    notebookMenuDivider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 14 },
+    notebookMenuDeleteRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+    notebookMenuDeleteText: { fontSize: 15, fontWeight: '600', color: '#EF4444' },
+    // Custom Delete Confirmation Modal
+    deleteModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+    deleteModalContent: { backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 360, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 10 },
+    deleteModalIconWrap: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+    deleteModalTitle: { fontSize: 20, fontWeight: '700', color: '#111', marginBottom: 12, textAlign: 'center' },
+    deleteModalMessage: { fontSize: 15, color: '#4b5563', textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+    deleteModalActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', width: '100%', gap: 12 },
+    deleteModalCancelBtn: { paddingVertical: 12, paddingHorizontal: 16 },
+    deleteModalCancelText: { fontSize: 15, fontWeight: '700', color: '#6b7280' },
+    deleteModalConfirmBtn: { backgroundColor: '#ef4444', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 12 },
+    deleteModalConfirmText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+    colorModalContent: { backgroundColor: '#fff', borderRadius: 20, padding: 24, paddingBottom: 20, width: '100%', maxWidth: 360, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 10 },
+    colorModalTitle: { fontSize: 18, fontWeight: '700', color: '#111', marginBottom: 8, alignSelf: 'flex-start' },
+    colorModalMessage: { fontSize: 15, color: '#4b5563', marginBottom: 24, alignSelf: 'flex-start' },
+    colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginBottom: 24, justifyContent: 'center' },
+    colorSwatchLarge: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
     // New notebook input
     newNotebookRow: {
         flexDirection: 'row',
