@@ -4,11 +4,11 @@
  *
  * Purpose:
  * - Receive messy/raw notes + a persona (Executive/Social/etc.)
- * - Call OpenAI (server-side) to transform notes into professional Markdown
+ * - Call Gemini (server-side) to transform notes into professional Markdown
  * - Return { formatted_content } to the Expo app
  *
  * Why Edge Function (important beginner concept):
- * - We MUST NOT put the OpenAI API key inside the mobile/web app.
+ * - We MUST NOT put the Gemini API key inside the mobile/web app.
  * - Edge Functions run on Supabase servers and can safely use secrets.
  */
 
@@ -232,11 +232,11 @@ Deno.serve(async (req) => {
     const geminiJson = await geminiResp.json()
     const formatted =
       geminiJson?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text ?? '').join('') ?? ''
-    
+
     if (!formatted.trim()) {
       return json({ error: 'Gemini returned empty output' }, 502)
     }
-    
+
     return json({ formatted_content: formatted })
   } catch (e) {
     return json({ error: 'Unexpected error', details: String(e) }, 500)
