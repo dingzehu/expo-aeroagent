@@ -1,13 +1,12 @@
-import { MarkdownView } from '@/components/MarkdownView'
+import { NoteEditorCard } from '@/components/NoteEditorCard'
+import { PersonaPill } from '@/components/PersonaPill'
+import { PERSONAS, PERSONA_HELP, useNoteEditor } from '@/lib/noteHelpers'
 import { supabase } from '@/lib/supabase'
 import { Ionicons, MaterialIcons } from '@expo/vector-icons'
 import type { Session } from '@supabase/supabase-js'
-import { BlurView } from 'expo-blur'
-import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Stack } from 'expo-router'
-import { Sparkles } from 'lucide-react-native'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
@@ -29,26 +28,6 @@ import {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-
-type PersonaId = 'Executive' | 'Social' | 'Summarize' | 'Academic'
-type AutosaveState = 'idle' | 'dirty' | 'syncing' | 'saved' | 'error'
-
-const PERSONAS: { id: PersonaId; label: string }[] = [
-    { id: 'Executive', label: 'Executive' },
-    { id: 'Social', label: 'Social Media' },
-    { id: 'Summarize', label: 'Summarize' },
-    { id: 'Academic', label: 'Academic' },
-]
-
-const PERSONA_HELP: Record<PersonaId, string> = {
-    Executive: 'Formal, bulleted, action-oriented',
-    Social: 'Engaging, concise, shareable tone',
-    Summarize: 'Short, clear summary with key points',
-    Academic: 'Structured, analytical, citation-friendly tone',
-}
-
 const NOTEBOOK_COLORS = [
     '#fa6963', '#00a294', '#3461cd', '#db9c2a',
     '#e53856', '#22C55E', '#56a64b', '#00aab3',
@@ -57,14 +36,10 @@ const NOTEBOOK_COLORS = [
     '#84cc16', '#06b6d4', '#d946ef', '#64748b'
 ]
 
-// ─── Editor styles (defined here so PersonaPill can reference them) ────────────
+// ─── Editor-specific styles (for the inline editor panel) ─────────────────────
 
 const editorStyles = StyleSheet.create({
-    screen: {
-        flex: 1,
-        backgroundColor: '#fff',
-        padding: 16,
-    },
+    screen: { flex: 1, backgroundColor: '#fff', padding: 16 },
     backRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -78,29 +53,10 @@ const editorStyles = StyleSheet.create({
         paddingVertical: 6,
         paddingRight: 10,
     },
-    backBtnText: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: '#6366F1',
-    },
-    autosaveBadge: {
-        width: 20,
-        height: 20,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    autosaveDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 999,
-        backgroundColor: '#10B981',
-    },
-    label: {
-        fontSize: 12,
-        fontWeight: '800',
-        color: '#222',
-        marginBottom: 6,
-    },
+    backBtnText: { fontSize: 15, fontWeight: '700', color: '#6366F1' },
+    autosaveBadge: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
+    autosaveDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: '#10B981' },
+    label: { fontSize: 12, fontWeight: '800', color: '#222', marginBottom: 6 },
     titleInput: {
         borderWidth: 1,
         borderColor: '#e4e4e7',
@@ -110,11 +66,7 @@ const editorStyles = StyleSheet.create({
         backgroundColor: '#fff',
         fontSize: 15,
     },
-    rawInputWrap: {
-        flex: 1,
-        position: 'relative',
-        marginBottom: 0,
-    },
+    rawInputWrap: { flex: 1, position: 'relative', marginBottom: 0 },
     rawInput: {
         flex: 1,
         borderWidth: 1,
@@ -125,270 +77,11 @@ const editorStyles = StyleSheet.create({
         backgroundColor: '#fff',
         fontSize: 14,
     },
-    magicBar: {
-        paddingVertical: 10,
-    },
-    magicBarContent: {
-        gap: 8,
-        paddingRight: 8,
-    },
-    pillBase: {
-        borderRadius: 50,
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.35)',
-    },
-    pillGlassFallback: {
-        backgroundColor: 'rgba(255,255,255,0.55)',
-    },
-    pillInner: {
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    pillActiveGlass: Platform.select({
-        web: { boxShadow: '0 6px 14px rgba(129, 140, 248, 0.28)' } as any,
-        default: {
-            shadowColor: '#818CF8',
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.28,
-            shadowRadius: 14,
-            elevation: 8,
-        },
-    })!,
-    pillText: {
-        fontSize: 13,
-        fontWeight: '900',
-        color: '#111827',
-    },
-    pillTextActive: {
-        color: '#fff',
-    },
-    canvas: {
-        flex: 1,
-        backgroundColor: '#F9FAFB',
-        borderRadius: 16,
-        padding: 14,
-    },
-    canvasLabel: {
-        fontSize: 11,
-        fontWeight: '900',
-        color: '#666',
-        marginBottom: 10,
-        letterSpacing: 0.6,
-    },
-    card: Platform.select({
-        web: {
-            flex: 1,
-            backgroundColor: '#fff',
-            borderRadius: 16,
-            padding: 20,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-        } as any,
-        default: {
-            flex: 1,
-            backgroundColor: '#fff',
-            borderRadius: 16,
-            padding: 20,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.1,
-            shadowRadius: 12,
-            elevation: 5,
-        },
-    })!,
-    cardAiMode: {
-        borderWidth: 1,
-        borderColor: 'rgba(99,102,241,0.35)',
-    },
-    cardAiTopRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 10,
-        marginBottom: 10,
-    },
-    aiBadge: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 999,
-        backgroundColor: 'rgba(99,102,241,0.10)',
-        borderWidth: 1,
-        borderColor: 'rgba(99,102,241,0.25)',
-    },
-    aiBadgeText: {
-        fontSize: 12,
-        fontWeight: '900',
-        color: '#4f46e5',
-    },
-    backToDraftButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 999,
-        backgroundColor: '#F3F4F6',
-    },
-    backToDraftText: {
-        fontSize: 12,
-        fontWeight: '900',
-        color: '#374151',
-    },
-    cardBody: {
-        flex: 1,
-        marginBottom: 12,
-    },
-    previewEmpty: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 24,
-    },
-    previewEmptyIcon: {
-        width: 46,
-        height: 46,
-        borderRadius: 16,
-        backgroundColor: 'rgba(99,102,241,0.10)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 10,
-    },
-    previewEmptyTitle: {
-        fontSize: 14,
-        fontWeight: '900',
-        color: '#111827',
-        marginBottom: 6,
-    },
-    previewEmptySubtitle: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#6b7280',
-        textAlign: 'center',
-        maxWidth: 320,
-    },
-    skeletonWrap: {
-        position: 'relative',
-        overflow: 'hidden',
-        paddingVertical: 6,
-    },
-    skeletonBar: {
-        height: 12,
-        borderRadius: 8,
-        backgroundColor: '#E5E7EB',
-        marginBottom: 10,
-        width: '72%',
-    },
-    skeletonBarWide: {
-        height: 12,
-        borderRadius: 8,
-        backgroundColor: '#E5E7EB',
-        marginBottom: 10,
-        width: '94%',
-    },
-    skeletonShimmer: {
-        position: 'absolute',
-        top: 0,
-        bottom: 0,
-        width: 120,
-        backgroundColor: 'rgba(255,255,255,0.55)',
-        opacity: 0.9,
-    },
-    cardFooterRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-    },
-    cardMetaText: {
-        fontSize: 12,
-        fontWeight: '800',
-        color: '#6b7280',
-        flexShrink: 1,
-    },
-    cardActionsRow: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-    },
-    copyButton: {
-        flex: 1,
-        flexDirection: 'row',
-        gap: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#10B981',
-        borderRadius: 14,
-        paddingVertical: 12,
-    },
-    copyButtonCopied: {
-        backgroundColor: '#059669',
-    },
-    copyButtonText: {
-        color: '#fff',
-        fontSize: 15,
-        fontWeight: '900',
-    },
-    shareButton: {
-        width: 44,
-        height: 44,
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: '#d1d5db',
-        backgroundColor: 'transparent',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    aiErrorText: {
-        fontSize: 12,
-        fontWeight: '800',
-        color: '#b91c1c',
-        marginBottom: 10,
-    },
-    disabled: {
-        opacity: 0.6,
-    },
-    topSection: {
-        flex: 1,
-    },
+    magicBar: { paddingVertical: 10 },
+    magicBarContent: { gap: 8, paddingRight: 8 },
+    canvas: { flex: 1, backgroundColor: '#F9FAFB', borderRadius: 16, padding: 14 },
+    topSection: { flex: 1 },
 })
-
-// ─── PersonaPill ──────────────────────────────────────────────────────────────
-
-function PersonaPill(props: {
-    label: string
-    help: string
-    active: boolean
-    disabled?: boolean
-    onPress: () => void
-}) {
-    const { label, help, active, disabled, onPress } = props
-    return (
-        <Pressable
-            {...(Platform.OS === 'web' ? ({ title: `${label}: ${help}` } as any) : null)}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            onPress={onPress}
-            disabled={disabled}
-            style={[editorStyles.pillBase, active && editorStyles.pillActiveGlass, disabled && editorStyles.disabled]}
-        >
-            {active ? (
-                <LinearGradient colors={['#818CF8', '#6366F1']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-            ) : Platform.OS === 'web' ? (
-                <View style={[StyleSheet.absoluteFill, editorStyles.pillGlassFallback]} />
-            ) : (
-                <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />
-            )}
-            <View style={editorStyles.pillInner}>
-                <Text style={[editorStyles.pillText, active && editorStyles.pillTextActive]} numberOfLines={1}>
-                    {label}
-                </Text>
-            </View>
-        </Pressable>
-    )
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -405,13 +98,6 @@ type Notebook = {
     id: string
     name: string
     colour_tag: string | null
-}
-
-type GroupedNotes = {
-    notebookId: string | null
-    notebookName: string
-    colour: string | null
-    notes: Note[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -524,30 +210,16 @@ export default function ThoughtsScreen() {
 
     // ─── Editor panel state ───────────────────────────────────────────────────
     const [editorVisible, setEditorVisible] = useState(false)
-    const editorVisibleRef = useRef(false)   // ref mirror — always current inside subscription closures
+    const editorVisibleRef = useRef(false)
     const editorSlideAnim = useRef(new Animated.Value(0)).current
 
-    const [editorNoteId, setEditorNoteId] = useState<string | null>(null)
-    const [editorTitle, setEditorTitle] = useState('')
-    const [editorContent, setEditorContent] = useState('')
-    const [editorFormatted, setEditorFormatted] = useState('')
-    const [editorStyle, setEditorStyle] = useState<PersonaId | null>(null)
     const [editorNotebookId, setEditorNotebookId] = useState<string | null>(null)
 
-    const [autosaveState, setAutosaveState] = useState<AutosaveState>('idle')
-    const [isPreviewingAI, setIsPreviewingAI] = useState(false)
-    const [styling, setStyling] = useState(false)
-    const [aiError, setAiError] = useState<string | null>(null)
-    const [copiedFlash, setCopiedFlash] = useState(false)
-
-    const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    const autosaveInFlightRef = useRef(false)
-    const autosavePendingRef = useRef(false)
-    const lastSavedSigRef = useRef('')
-    const lastRawRef = useRef('')
-    const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    const skeletonAnim = useRef(new Animated.Value(0)).current
-    const autosavePulseAnim = useRef(new Animated.Value(0)).current
+    // ── useNoteEditor hook ─────────────────────────────────────────────────────
+    const editor = useNoteEditor({
+        session,
+        notebookId: editorNotebookId,
+    })
 
     // ─── Auth ─────────────────────────────────────────────────────────────────
 
@@ -611,7 +283,7 @@ export default function ThoughtsScreen() {
         if (q)
             result = result.filter(n =>
                 (n.title ?? '').toLowerCase().includes(q) ||
-                (n.raw_content ?? '').toLowerCase().includes(q)
+                (n.raw_content ?? '').toLowerCase().includes(q),
             )
         return result
     }, [notes, selectedNotebookId, mainSearch])
@@ -756,40 +428,39 @@ export default function ThoughtsScreen() {
     // ─── Editor open / close ──────────────────────────────────────────────────
 
     const openEditor = useCallback((note?: Note) => {
-        setEditorNoteId(note?.id ?? null)
-        setEditorTitle(note?.title ?? '')
-        setEditorContent(note?.raw_content ?? '')
-        setEditorFormatted('')
-        setEditorStyle(null)
-        setEditorNotebookId(note?.notebook_id ?? null)
-        setAutosaveState('idle')
-        setIsPreviewingAI(false)
-        setAiError(null)
-        lastSavedSigRef.current = note
-            ? `${(note.title ?? '').trim()}\n---\n${note.raw_content ?? ''}` : ''
-        lastRawRef.current = note?.raw_content ?? ''
+        if (note) {
+            editor.loadIntoEditor({
+                id: note.id,
+                title: note.title,
+                raw_content: note.raw_content,
+            })
+            setEditorNotebookId(note.notebook_id ?? null)
+        } else {
+            editor.clearEditor()
+            setEditorNotebookId(null)
+        }
         editorVisibleRef.current = true
         setEditorVisible(true)
         Animated.spring(editorSlideAnim, { toValue: 1, useNativeDriver: true, friction: 8, tension: 60 }).start()
-    }, [editorSlideAnim])
+    }, [editorSlideAnim, editor])
 
     const closeEditor = useCallback(() => {
-        if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+        if (editor.autosaveState === 'dirty' || editor.autosaveState === 'syncing') {
+            editor.flushAutosave()
+        }
 
-        // Optimistic list update: patch notes state before the slide-back reveals the list,
-        // so it shows correct data the instant it becomes visible (no spinner, no reorder flash).
-        if (editorNoteId) {
+        if (editor.noteId) {
             const nowIso = new Date().toISOString()
             setNotes(prev => {
-                const exists = prev.some(n => n.id === editorNoteId)
+                const exists = prev.some(n => n.id === editor.noteId)
                 const patched = exists
-                    ? prev.map(n => n.id === editorNoteId
-                        ? { ...n, title: editorTitle || null, raw_content: editorContent || null, updated_at: nowIso }
-                        : n
+                    ? prev.map(n => n.id === editor.noteId
+                        ? { ...n, title: editor.title || null, raw_content: editor.rawContent || null, updated_at: nowIso }
+                        : n,
                     )
                     : [{
-                        id: editorNoteId, title: editorTitle || null, raw_content: editorContent || null,
-                        updated_at: nowIso, created_at: nowIso, notebook_id: editorNotebookId
+                        id: editor.noteId!, title: editor.title || null, raw_content: editor.rawContent || null,
+                        updated_at: nowIso, created_at: nowIso, notebook_id: editorNotebookId,
                     }, ...prev]
                 return patched.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
             })
@@ -798,225 +469,14 @@ export default function ThoughtsScreen() {
         Animated.spring(editorSlideAnim, { toValue: 0, useNativeDriver: true, friction: 8, tension: 60 })
             .start(({ finished }) => {
                 if (finished) {
-                    editorVisibleRef.current = false  // unblock real-time handler after animation
+                    editorVisibleRef.current = false
                     setEditorVisible(false)
-                    fetchData({ silent: true })       // background reconcile, no spinner
+                    fetchData({ silent: true })
                 }
             })
-    }, [editorSlideAnim, fetchData, editorNoteId, editorTitle, editorContent, editorNotebookId])
+    }, [editorSlideAnim, fetchData, editor, editorNotebookId])
 
-    // ─── Autosave ─────────────────────────────────────────────────────────────
-
-    const makeEditorSig = useCallback((t: string, c: string) => `${t.trim()}\n---\n${c}`, [])
-
-    const saveNoteDraft = useCallback(async (opts?: { reason?: 'debounce' | 'flush' | 'ai' }) => {
-        const userId = session?.user?.id
-        if (!userId) { setAutosaveState('error'); return false }
-
-        const sig = makeEditorSig(editorTitle, editorContent)
-        const hasMeaningfulContent = !!(editorTitle.trim() || editorContent.trim())
-
-        if (!editorNoteId && !hasMeaningfulContent) return true
-        if (sig === lastSavedSigRef.current && opts?.reason !== 'flush') return true
-        if (autosaveInFlightRef.current) { autosavePendingRef.current = true; return true }
-
-        autosaveInFlightRef.current = true
-        setAutosaveState('syncing')
-
-        const nowIso = new Date().toISOString()
-        try {
-            if (!editorNoteId) {
-                const payload = {
-                    user_id: userId,
-                    title: editorTitle,
-                    raw_content: editorContent,
-                    formatted_content: editorFormatted || null,
-                    selected_style: editorStyle,
-                    notebook_id: editorNotebookId ?? null,
-                    updated_at: nowIso,
-                }
-                const { data, error } = await supabase.from('notes').insert(payload).select('id').single()
-                if (error) throw error
-                setEditorNoteId(data.id)
-            } else {
-                const payload = {
-                    title: editorTitle,
-                    raw_content: editorContent,
-                    formatted_content: editorFormatted || null,
-                    selected_style: editorStyle,
-                    updated_at: nowIso,
-                }
-                const { error } = await supabase.from('notes').update(payload).eq('id', editorNoteId).eq('user_id', userId)
-                if (error) throw error
-            }
-            lastSavedSigRef.current = sig
-            setAutosaveState('saved')
-            return true
-        } catch {
-            setAutosaveState('error')
-            return false
-        } finally {
-            autosaveInFlightRef.current = false
-            if (autosavePendingRef.current) {
-                autosavePendingRef.current = false
-                void saveNoteDraft({ reason: 'debounce' })
-            }
-        }
-    }, [editorContent, editorFormatted, editorNoteId, editorNotebookId, editorStyle, editorTitle, makeEditorSig, session?.user?.id])
-
-    // Debounced autosave on content change
-    useEffect(() => {
-        if (!editorVisible) return
-        const userId = session?.user?.id
-        if (!userId) return
-
-        const sig = makeEditorSig(editorTitle, editorContent)
-        if (sig === lastSavedSigRef.current) return
-        if (!editorNoteId && !(editorTitle.trim() || editorContent.trim())) return
-
-        setAutosaveState(prev => prev === 'dirty' ? prev : 'dirty')
-
-        if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
-        autosaveTimerRef.current = setTimeout(() => {
-            void saveNoteDraft({ reason: 'debounce' })
-        }, 2000)
-
-        return () => {
-            if (autosaveTimerRef.current) { clearTimeout(autosaveTimerRef.current); autosaveTimerRef.current = null }
-        }
-    }, [editorContent, editorNoteId, editorTitle, editorVisible, makeEditorSig, saveNoteDraft, session?.user?.id])
-
-    // ─── Hybrid preview ───────────────────────────────────────────────────────
-
-    const previewMarkdown = useMemo(
-        () => isPreviewingAI ? editorFormatted : editorContent,
-        [isPreviewingAI, editorFormatted, editorContent]
-    )
-
-    // Exit AI mode when raw content changes
-    useEffect(() => {
-        const prevRaw = lastRawRef.current
-        const didChange = editorContent !== prevRaw
-        lastRawRef.current = editorContent
-        if (isPreviewingAI && didChange) setIsPreviewingAI(false)
-    }, [isPreviewingAI, editorContent])
-
-    // ─── AI Styling ───────────────────────────────────────────────────────────
-
-    const runAiStyling = useCallback(async (persona: PersonaId) => {
-        const userId = session?.user?.id
-        if (!userId) { setAiError('Login required: please login before using AI styling.'); return }
-        if (!editorContent.trim()) { setAiError('Nothing to style: type some notes first.'); return }
-
-        setAiError(null)
-        setEditorStyle(persona)
-        setStyling(true)
-
-        try {
-            const { data: { session: currentSession } } = await supabase.auth.getSession()
-            const accessToken = currentSession?.access_token
-            if (!accessToken) throw new Error('No access token found. Please login again.')
-
-            const resp = await fetch(`${SUPABASE_URL}/functions/v1/note-style`, {
-                method: 'POST',
-                headers: {
-                    apikey: SUPABASE_ANON_KEY,
-                    Authorization: `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ title: editorTitle, raw_content: editorContent, persona }),
-            })
-
-            const text = await resp.text()
-            if (!resp.ok) {
-                throw Object.assign(new Error('Edge Function returned a non-2xx status code'), {
-                    status: resp.status, details: text,
-                })
-            }
-
-            const data = JSON.parse(text)
-            const markdown = (data?.formatted_content ?? '') as string
-            if (!markdown) throw new Error('Edge function returned empty formatted_content')
-
-            setEditorFormatted(markdown)
-            void saveNoteDraft({ reason: 'ai' })
-        } catch (e: any) {
-            const status = e?.context?.status ?? e?.status
-            const details = e?.context?.body ?? e?.context?.response ?? e?.details
-            const message = e?.message ?? 'Unknown error'
-            const extra = details ? `\nDetails: ${typeof details === 'string' ? details : JSON.stringify(details)}` : ''
-            const statusPart = status ? ` (HTTP ${status})` : ''
-            setAiError(`AI styling failed${statusPart}: ${message}${extra}`)
-            console.error('[AI styling error]', e)
-            setIsPreviewingAI(false)
-        } finally {
-            setStyling(false)
-        }
-    }, [editorContent, editorTitle, saveNoteDraft, session?.user?.id])
-
-    // ─── Skeleton shimmer ─────────────────────────────────────────────────────
-
-    useEffect(() => {
-        if (!styling) return
-        skeletonAnim.setValue(0)
-        const loop = Animated.loop(
-            Animated.timing(skeletonAnim, { toValue: 1, duration: 1100, useNativeDriver: true })
-        )
-        loop.start()
-        return () => loop.stop()
-    }, [skeletonAnim, styling])
-
-    const skeletonTranslateX = skeletonAnim.interpolate({ inputRange: [0, 1], outputRange: [-140, 260] })
-
-    // ─── Autosave pulse ───────────────────────────────────────────────────────
-
-    useEffect(() => {
-        if (autosaveState !== 'saved') {
-            autosavePulseAnim.stopAnimation()
-            autosavePulseAnim.setValue(0)
-            return
-        }
-        autosavePulseAnim.setValue(0)
-        const loop = Animated.loop(
-            Animated.sequence([
-                Animated.timing(autosavePulseAnim, { toValue: 1, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-                Animated.timing(autosavePulseAnim, { toValue: 0, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-            ])
-        )
-        loop.start()
-        return () => loop.stop()
-    }, [autosavePulseAnim, autosaveState])
-
-    const autosavePulseScale = autosavePulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] })
-    const autosavePulseOpacity = autosavePulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 0.35] })
-
-    // ─── Copy result ──────────────────────────────────────────────────────────
-
-    const copyResult = useCallback(async () => {
-        const textToCopy = previewMarkdown || ''
-        if (!textToCopy.trim()) { Alert.alert('Nothing to copy', 'Generate some formatted content first.'); return }
-        await Clipboard.setStringAsync(textToCopy)
-        setCopiedFlash(true)
-        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
-        copiedTimerRef.current = setTimeout(() => setCopiedFlash(false), 1500)
-    }, [previewMarkdown])
-
-    useEffect(() => {
-        return () => { if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current) }
-    }, [])
-
-    // ─── Word count ───────────────────────────────────────────────────────────
-
-    const wordCount = useMemo(() => {
-        const text = (previewMarkdown ?? '').trim()
-        if (!text) return 0
-        return text.split(/\s+/).filter(Boolean).length
-    }, [previewMarkdown])
-
-    const readingTimeMinutes = useMemo(() => {
-        if (!wordCount) return 0
-        return Math.max(1, Math.ceil(wordCount / 200))
-    }, [wordCount])
+    // ─── Layout ──────────────────────────────────────────────────────────────
 
     const contentWidth = isWeb ? windowWidth - 320 : windowWidth
 
@@ -1033,7 +493,7 @@ export default function ThoughtsScreen() {
                 style={[
                     drawerStyles.notebookRow,
                     isWeb && { borderBottomWidth: 0, paddingVertical: 10, marginHorizontal: 8, borderRadius: 8, marginTop: 8, overflow: 'hidden' },
-                    !isWeb && selectedNotebookId === null && drawerStyles.notebookRowSelected
+                    !isWeb && selectedNotebookId === null && drawerStyles.notebookRowSelected,
                 ]}
                 onPress={() => { setSelectedNotebookId(null); if (!isWeb) closeDrawer() }}
             >
@@ -1051,10 +511,7 @@ export default function ThoughtsScreen() {
                 <Text style={drawerStyles.sectionLabel}>Notebooks</Text>
                 <Pressable
                     hitSlop={8}
-                    onPress={() => {
-                        setShowNewNotebookInput(v => !v)
-                        setNewNotebookName('')
-                    }}
+                    onPress={() => { setShowNewNotebookInput(v => !v); setNewNotebookName('') }}
                 >
                     <Ionicons name={showNewNotebookInput ? 'close' : 'add'} size={20} color={isWeb ? '#9ca3af' : '#6366F1'} />
                 </Pressable>
@@ -1096,7 +553,7 @@ export default function ThoughtsScreen() {
                             drawerStyles.notebookRow,
                             isWeb && { borderBottomWidth: 0, marginHorizontal: 8, borderRadius: 8, overflow: 'hidden' },
                             !isWeb && selectedNotebookId === nb.id && drawerStyles.notebookRowSelected,
-                            !isWeb && notebookMenuTarget?.id === nb.id && drawerStyles.notebookRowHighlighted
+                            !isWeb && notebookMenuTarget?.id === nb.id && drawerStyles.notebookRowHighlighted,
                         ]}
                     >
                         {isWeb && selectedNotebookId === nb.id && (
@@ -1123,11 +580,11 @@ export default function ThoughtsScreen() {
                             }}
                             style={[
                                 drawerStyles.notebookMenuBtn,
-                                (notebookMenuTarget?.id === nb.id) && drawerStyles.notebookMenuBtnActive
+                                (notebookMenuTarget?.id === nb.id) && drawerStyles.notebookMenuBtnActive,
                             ]}
                             activeOpacity={0.5}
                         >
-                            <Ionicons name="ellipsis-vertical" size={16} color={selectedNotebookId === nb.id && isWeb ? "rgba(255,255,255,0.7)" : "#9CA3AF"} />
+                            <Ionicons name="ellipsis-vertical" size={16} color={selectedNotebookId === nb.id && isWeb ? 'rgba(255,255,255,0.7)' : '#9CA3AF'} />
                         </TouchableOpacity>
                     </View>
                 ))
@@ -1172,7 +629,6 @@ export default function ThoughtsScreen() {
             )}
 
             <View style={{ flex: 1, flexDirection: 'column' }}>
-                {/* ── Toolbar (always at top, never animated) ── */}
                 {session?.user && !loading && (
                     <View style={[styles.toolbar, isWeb && styles.toolbarWeb]}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', flex: isWeb ? 1 : undefined }}>
@@ -1216,7 +672,6 @@ export default function ThoughtsScreen() {
                     </View>
                 )}
 
-                {/* ── Two-panel container (clips overflow so panel 2 is hidden until slid in) ── */}
                 <View style={{ flex: 1, overflow: 'hidden' }}>
                     <Animated.View
                         style={{
@@ -1226,7 +681,7 @@ export default function ThoughtsScreen() {
                             transform: [{ translateX: editorTranslateX }],
                         }}
                     >
-                        {/* ── Panel 1: Notes list ── */}
+                        {/* Panel 1: Notes list */}
                         <View style={{ width: contentWidth, flex: 1 }}>
                             {loading ? (
                                 <View style={styles.center}>
@@ -1249,7 +704,6 @@ export default function ThoughtsScreen() {
                                 </View>
                             ) : (
                                 <View style={{ flex: 1, backgroundColor: isWeb ? '#fafafa' : '#fff' }}>
-                                    {/* Filter label + count */}
                                     <View style={[styles.listHeader, isWeb && styles.listHeaderWeb]}>
                                         <Text style={[styles.listHeaderLabel, isWeb && styles.listHeaderLabelWeb]}>
                                             {selectedNotebookId
@@ -1259,7 +713,6 @@ export default function ThoughtsScreen() {
                                         {!isWeb && <Text style={styles.listHeaderCount}>{filteredNotes.length}</Text>}
                                     </View>
 
-                                    {/* Always-visible search bar (mobile only) */}
                                     {!isWeb && (
                                         <View style={styles.searchBarRow}>
                                             <Ionicons name="search" size={15} color="#9ca3af" style={{ marginLeft: 12 }} />
@@ -1279,7 +732,6 @@ export default function ThoughtsScreen() {
                                         </View>
                                     )}
 
-                                    {/* Flat note list */}
                                     {filteredNotes.length === 0 ? (
                                         <View style={styles.center}>
                                             <Ionicons name="search-outline" size={40} color="#e0e0e0" />
@@ -1309,43 +761,41 @@ export default function ThoughtsScreen() {
                             )}
                         </View>
 
-                        {/* ── Panel 2: Inline editor ── */}
+                        {/* Panel 2: Inline editor */}
                         <KeyboardAvoidingView
                             style={{ width: contentWidth, flex: 1 }}
                             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                             pointerEvents={editorVisible ? 'auto' : 'none'}
                         >
                             <View style={editorStyles.screen}>
-                                {/* Back row */}
                                 <View style={editorStyles.backRow}>
                                     <Pressable style={editorStyles.backBtn} onPress={closeEditor}>
                                         <Ionicons name="arrow-back" size={20} color="#6366F1" />
                                         <Text style={editorStyles.backBtnText}>Thoughts</Text>
                                     </Pressable>
                                     <View pointerEvents="none" style={editorStyles.autosaveBadge}>
-                                        {autosaveState === 'syncing' ? (
+                                        {editor.autosaveState === 'syncing' ? (
                                             <ActivityIndicator size="small" color="#9CA3AF" />
-                                        ) : autosaveState === 'saved' ? (
+                                        ) : editor.autosaveState === 'saved' ? (
                                             <Animated.View
                                                 style={[
                                                     editorStyles.autosaveDot,
-                                                    { transform: [{ scale: autosavePulseScale }], opacity: autosavePulseOpacity },
+                                                    { transform: [{ scale: editor.autosavePulseScale }], opacity: editor.autosavePulseOpacity },
                                                 ]}
                                             />
-                                        ) : autosaveState === 'dirty' ? (
+                                        ) : editor.autosaveState === 'dirty' ? (
                                             <MaterialIcons name="fiber-manual-record" size={10} color="#9CA3AF" />
                                         ) : null}
                                     </View>
                                 </View>
 
-                                {/* Top section: title + raw notes */}
                                 <View style={editorStyles.topSection}>
                                     <Text style={editorStyles.label}>Note Title</Text>
                                     <TextInput
                                         style={editorStyles.titleInput}
                                         placeholder="Type a title…"
-                                        value={editorTitle}
-                                        onChangeText={setEditorTitle}
+                                        value={editor.title}
+                                        onChangeText={editor.setTitle}
                                         autoCapitalize="sentences"
                                         returnKeyType="done"
                                     />
@@ -1354,8 +804,8 @@ export default function ThoughtsScreen() {
                                         <TextInput
                                             style={editorStyles.rawInput}
                                             placeholder="Type your messy thoughts here…"
-                                            value={editorContent}
-                                            onChangeText={setEditorContent}
+                                            value={editor.rawContent}
+                                            onChangeText={editor.setRawContent}
                                             multiline
                                             autoFocus={false}
                                             textAlignVertical="top"
@@ -1363,25 +813,24 @@ export default function ThoughtsScreen() {
                                     </View>
                                 </View>
 
-                                {/* Magic Bar */}
                                 <View style={editorStyles.magicBar}>
                                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={editorStyles.magicBarContent}>
                                         {PERSONAS.map(p => {
-                                            const active = editorStyle === p.id
-                                            const label = styling && active ? 'Styling…' : p.label
+                                            const active = editor.selectedStyle === p.id
+                                            const label = editor.styling && active ? 'Styling…' : p.label
                                             return (
                                                 <PersonaPill
                                                     key={p.id}
                                                     label={label}
                                                     help={PERSONA_HELP[p.id]}
                                                     active={active}
-                                                    disabled={styling}
+                                                    disabled={editor.styling}
                                                     onPress={async () => {
                                                         if (Platform.OS !== 'web') {
-                                                            try { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light) } catch { }
+                                                            try { await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light) } catch {}
                                                         }
-                                                        setIsPreviewingAI(editorContent.trim() ? true : false)
-                                                        runAiStyling(p.id)
+                                                        editor.setIsPreviewingAI(editor.rawContent.trim() ? true : false)
+                                                        editor.runAiStyling(p.id)
                                                     }}
                                                 />
                                             )
@@ -1389,82 +838,19 @@ export default function ThoughtsScreen() {
                                     </ScrollView>
                                 </View>
 
-                                {/* Canvas */}
                                 <View style={editorStyles.canvas}>
-                                    <Text style={editorStyles.canvasLabel}>AI STYLED PREVIEW</Text>
-                                    {aiError ? <Text style={editorStyles.aiErrorText}>{aiError}</Text> : null}
-
-                                    <View style={[editorStyles.card, isPreviewingAI && editorStyles.cardAiMode]}>
-                                        {isPreviewingAI ? (
-                                            <View style={editorStyles.cardAiTopRow}>
-                                                <View style={editorStyles.aiBadge}>
-                                                    <Text style={editorStyles.aiBadgeText}>✨ AI Generated</Text>
-                                                </View>
-                                                <Pressable
-                                                    accessibilityRole="button"
-                                                    accessibilityLabel="Back to draft"
-                                                    onPress={() => setIsPreviewingAI(false)}
-                                                    style={editorStyles.backToDraftButton}
-                                                >
-                                                    <MaterialIcons name="undo" size={16} color="#374151" />
-                                                    <Text style={editorStyles.backToDraftText}>Back to Draft</Text>
-                                                </Pressable>
-                                            </View>
-                                        ) : null}
-
-                                        <ScrollView style={editorStyles.cardBody} keyboardShouldPersistTaps="handled">
-                                            {styling ? (
-                                                <View style={editorStyles.skeletonWrap}>
-                                                    <View style={editorStyles.skeletonBar} />
-                                                    <View style={editorStyles.skeletonBarWide} />
-                                                    <View style={editorStyles.skeletonBar} />
-                                                    <View style={editorStyles.skeletonBarWide} />
-                                                    <Animated.View style={[editorStyles.skeletonShimmer, { transform: [{ translateX: skeletonTranslateX }] }]} />
-                                                </View>
-                                            ) : !previewMarkdown.trim() ? (
-                                                <View style={editorStyles.previewEmpty}>
-                                                    <View style={editorStyles.previewEmptyIcon}>
-                                                        <Sparkles size={28} color="#6366F1" />
-                                                    </View>
-                                                    <Text style={editorStyles.previewEmptyTitle}>Ready to transform</Text>
-                                                    <Text style={editorStyles.previewEmptySubtitle}>
-                                                        Select a persona above to transform your thoughts.
-                                                    </Text>
-                                                </View>
-                                            ) : (
-                                                <MarkdownView markdown={previewMarkdown} />
-                                            )}
-                                        </ScrollView>
-
-                                        <View style={editorStyles.cardFooterRow}>
-                                            <Text style={editorStyles.cardMetaText}>
-                                                {wordCount ? `${wordCount} words • ${readingTimeMinutes} min read` : '—'}
-                                            </Text>
-                                            <View style={editorStyles.cardActionsRow}>
-                                                <Pressable
-                                                    style={[
-                                                        editorStyles.copyButton,
-                                                        copiedFlash && editorStyles.copyButtonCopied,
-                                                        (!previewMarkdown.trim() || styling) && editorStyles.disabled,
-                                                    ]}
-                                                    onPress={copyResult}
-                                                    disabled={!previewMarkdown.trim() || styling}
-                                                >
-                                                    <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-                                                    <Text style={editorStyles.copyButtonText}>
-                                                        {copiedFlash ? 'Copied! ✅' : 'Copy Result'}
-                                                    </Text>
-                                                </Pressable>
-                                                <Pressable
-                                                    disabled
-                                                    style={[editorStyles.shareButton, editorStyles.disabled]}
-                                                    onPress={() => { }}
-                                                >
-                                                    <MaterialIcons name="ios-share" size={18} color="#111827" />
-                                                </Pressable>
-                                            </View>
-                                        </View>
-                                    </View>
+                                    <NoteEditorCard
+                                        previewMarkdown={editor.previewMarkdown}
+                                        isPreviewingAI={editor.isPreviewingAI}
+                                        styling={editor.styling}
+                                        aiError={editor.aiError}
+                                        copiedFlash={editor.copiedFlash}
+                                        skeletonTranslateX={editor.skeletonTranslateX}
+                                        wordCount={editor.wordCount}
+                                        readingTimeMinutes={editor.readingTimeMinutes}
+                                        onBackToDraft={() => editor.setIsPreviewingAI(false)}
+                                        onCopyResult={editor.copyResult}
+                                    />
                                 </View>
                             </View>
                         </KeyboardAvoidingView>
@@ -1472,7 +858,7 @@ export default function ThoughtsScreen() {
                 </View>
             </View>
 
-            {/* ── Manage drawer (mobile) ── */}
+            {/* Manage drawer (mobile) */}
             {!isWeb && (
                 <View pointerEvents={drawerVisible ? 'auto' : 'none'} style={StyleSheet.absoluteFillObject}>
                     <Animated.View style={[drawerStyles.backdrop, { opacity: drawerAnim }]} />
@@ -1500,13 +886,8 @@ export default function ThoughtsScreen() {
                 </View>
             )}
 
-            {/* ── Notebook Context Menu ── */}
-            <Modal
-                transparent
-                visible={!!notebookMenuTarget}
-                animationType="fade"
-                onRequestClose={() => setNotebookMenuTarget(null)}
-            >
+            {/* Notebook Context Menu */}
+            <Modal transparent visible={!!notebookMenuTarget} animationType="fade" onRequestClose={() => setNotebookMenuTarget(null)}>
                 <View style={StyleSheet.absoluteFillObject}>
                     <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setNotebookMenuTarget(null)} />
                     {!!notebookMenuTarget && notebookMenuAnchor && (() => {
@@ -1517,7 +898,6 @@ export default function ThoughtsScreen() {
                         const top = isWeb
                             ? Math.max(notebookMenuAnchor.y - 32, 16)
                             : Math.min(notebookMenuAnchor.y + 16, windowHeight - 200)
-
                         return (
                             <View style={[drawerStyles.contextMenuFloating, isWeb && drawerStyles.contextMenuFloatingWeb, { left, top, width: isWeb ? 160 : MENU_W }]}>
                                 {isWeb && <View style={drawerStyles.contextMenuTip} />}
@@ -1549,13 +929,8 @@ export default function ThoughtsScreen() {
                 </View>
             </Modal>
 
-            {/* ── Notebook Color Change Picker Modal ── */}
-            <Modal
-                transparent
-                visible={!!colorModalTarget}
-                animationType="fade"
-                onRequestClose={() => setColorModalTarget(null)}
-            >
+            {/* Notebook Color Picker Modal */}
+            <Modal transparent visible={!!colorModalTarget} animationType="fade" onRequestClose={() => setColorModalTarget(null)}>
                 <View style={drawerStyles.deleteModalBackdrop}>
                     <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setColorModalTarget(null)} />
                     <Animated.View style={drawerStyles.colorModalContent}>
@@ -1570,10 +945,7 @@ export default function ThoughtsScreen() {
                                 <Pressable
                                     key={color}
                                     onPress={() => setSelectedColor(color)}
-                                    style={[
-                                        drawerStyles.colorSwatchLarge,
-                                        { backgroundColor: color },
-                                    ]}
+                                    style={[drawerStyles.colorSwatchLarge, { backgroundColor: color }]}
                                 >
                                     {selectedColor === color && (
                                         <Ionicons name="checkmark" size={24} color="#fff" style={{ opacity: 0.9 }} />
@@ -1582,10 +954,7 @@ export default function ThoughtsScreen() {
                             ))}
                         </View>
                         <View style={drawerStyles.deleteModalActions}>
-                            <Pressable
-                                style={drawerStyles.deleteModalCancelBtn}
-                                onPress={() => setColorModalTarget(null)}
-                            >
+                            <Pressable style={drawerStyles.deleteModalCancelBtn} onPress={() => setColorModalTarget(null)}>
                                 <Text style={[drawerStyles.deleteModalCancelText, { color: '#6d28d9' }]}>Cancel</Text>
                             </Pressable>
                             <Pressable
@@ -1604,13 +973,8 @@ export default function ThoughtsScreen() {
                 </View>
             </Modal>
 
-            {/* ── Notebook Delete Confirmation Modal ── */}
-            <Modal
-                transparent
-                visible={!!notebookToDelete}
-                animationType="fade"
-                onRequestClose={() => setNotebookToDelete(null)}
-            >
+            {/* Notebook Delete Confirmation Modal */}
+            <Modal transparent visible={!!notebookToDelete} animationType="fade" onRequestClose={() => setNotebookToDelete(null)}>
                 <View style={drawerStyles.deleteModalBackdrop}>
                     <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setNotebookToDelete(null)} />
                     <Animated.View style={drawerStyles.deleteModalContent}>
@@ -1618,22 +982,16 @@ export default function ThoughtsScreen() {
                             <Ionicons name="warning-outline" size={36} color="#ef4444" />
                         </View>
                         <Text style={drawerStyles.deleteModalTitle}>
-                            Delete "{notebookToDelete?.name}"?
+                            Delete &quot;{notebookToDelete?.name}&quot;?
                         </Text>
                         <Text style={drawerStyles.deleteModalMessage}>
                             Deleting this notebook will remove all {notebookToDelete ? notes.filter(n => n.notebook_id === notebookToDelete.id).length : 0} notes within it. This action cannot be undone.
                         </Text>
                         <View style={drawerStyles.deleteModalActions}>
-                            <Pressable
-                                style={drawerStyles.deleteModalCancelBtn}
-                                onPress={() => setNotebookToDelete(null)}
-                            >
+                            <Pressable style={drawerStyles.deleteModalCancelBtn} onPress={() => setNotebookToDelete(null)}>
                                 <Text style={drawerStyles.deleteModalCancelText}>Cancel</Text>
                             </Pressable>
-                            <Pressable
-                                style={drawerStyles.deleteModalConfirmBtn}
-                                onPress={confirmDeleteNotebook}
-                            >
+                            <Pressable style={drawerStyles.deleteModalConfirmBtn} onPress={confirmDeleteNotebook}>
                                 <Text style={drawerStyles.deleteModalConfirmText}>Delete</Text>
                             </Pressable>
                         </View>
@@ -1641,26 +999,18 @@ export default function ThoughtsScreen() {
                 </View>
             </Modal>
 
-            {/* ── Anchored Popover ── */}
-            <Modal
-                transparent
-                visible={!!popoverMode}
-                animationType="fade"
-                onRequestClose={() => handleSetPopoverMode(null)}
-            >
+            {/* Anchored Popover */}
+            <Modal transparent visible={!!popoverMode} animationType="fade" onRequestClose={() => handleSetPopoverMode(null)}>
                 <View style={StyleSheet.absoluteFillObject}>
                     <Pressable style={StyleSheet.absoluteFillObject} onPress={() => handleSetPopoverMode(null)} />
-
                     {!!popoverMode && (() => {
                         const MENU_W = 240
                         const anchorX = noteActionsAnchor?.x ?? windowWidth - 20
                         const left = Math.max(anchorX - MENU_W - 15, 8)
-
                         return (
                             <Animated.View style={[styles.popoverWrapper, { width: MENU_W, left, top: topAnim, height: heightAnim }]}>
                                 <Animated.View style={[styles.popoverTipBorder, { right: -8, top: tipTopAnim }]} />
                                 <Animated.View style={[styles.popoverTip, { right: -7, top: tipTopAnim }]} />
-
                                 <View style={[styles.popoverOverflowHidden, { flex: 1 }]}>
                                     <Animated.View style={[
                                         styles.popoverSlidingContainer,
@@ -1821,25 +1171,7 @@ const styles = StyleSheet.create({
         color: '#fff', fontWeight: '700',
     },
     list: { padding: 16, paddingTop: 8 },
-    groupContainer: {
-        marginBottom: 8,
-        borderRadius: 12,
-        overflow: 'hidden',
-        backgroundColor: '#fff',
-    },
-    groupHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 12,
-        paddingHorizontal: 16,
-        backgroundColor: '#f9fafb',
-        borderBottomWidth: 1,
-        borderBottomColor: '#f3f4f6',
-    },
     colorDot: { width: 8, height: 8, borderRadius: 4, marginHorizontal: 8 },
-    groupTitle: { fontSize: 14, fontWeight: '800', color: '#374151', flex: 1, marginLeft: 4 },
-    groupContent: { paddingLeft: 20 },
-    // Popover
     popoverWrapper: {
         position: 'absolute',
         backgroundColor: '#fff',
@@ -2051,9 +1383,7 @@ const drawerStyles = StyleSheet.create({
         borderRightColor: '#f3f4f6',
         zIndex: 10,
     },
-    webUserProfile: {
-        paddingVertical: 24,
-    },
+    webUserProfile: { paddingVertical: 24 },
     webBackRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -2061,11 +1391,7 @@ const drawerStyles = StyleSheet.create({
         paddingHorizontal: 20,
         marginBottom: 20,
     },
-    webBackBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-    },
+    webBackBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     webBackText: { color: '#fff', fontSize: 16 },
     webUserRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, gap: 16 },
     webAvatar: {
@@ -2102,7 +1428,6 @@ const drawerStyles = StyleSheet.create({
     },
     muted: { fontSize: 12, color: '#9CA3AF', paddingHorizontal: 16, marginTop: 6, fontStyle: 'italic' },
     colorDot: { width: 9, height: 9, borderRadius: 5 },
-    // Notebook rows
     notebookRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -2113,7 +1438,6 @@ const drawerStyles = StyleSheet.create({
         borderBottomColor: '#F3F4F6',
     },
     notebookRowSelected: { backgroundColor: '#EEF2FF' },
-    // flex: 1 but with paddingRight so it never reaches the delete button's zone
     notebookRowPressable: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingRight: 8 },
     notebookName: { flex: 1, fontSize: 14, fontWeight: '600', color: '#111' },
     notebookNameSelected: { color: '#4F46E5', fontWeight: '700' },
@@ -2121,7 +1445,6 @@ const drawerStyles = StyleSheet.create({
     notebookCountSelectedWeb: { color: 'rgba(255,255,255,0.7)' },
     notebookCount: { fontSize: 12, color: '#9CA3AF', fontWeight: '600' },
     notebookMenuBtn: { width: 36, height: 44, alignItems: 'center', justifyContent: 'center' },
-    // Floating context menu
     contextMenuFloating: {
         position: 'absolute',
         backgroundColor: '#fff',
@@ -2160,32 +1483,9 @@ const drawerStyles = StyleSheet.create({
     contextMenuFloatingTitle: { fontSize: 15, fontWeight: '700', color: '#111', marginBottom: 16 },
     contextMenuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
     contextMenuItemText: { fontSize: 15, fontWeight: '600', color: '#111' },
-    contextMenuHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
     contextMenuDivider: { height: 1, backgroundColor: '#f4f4f5', marginVertical: 6 },
     notebookRowHighlighted: { backgroundColor: '#f3f4f6' },
     notebookMenuBtnActive: { backgroundColor: '#e5e7eb', borderRadius: 16 },
-    notebookMenuOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' },
-    notebookMenuSheet: {
-        backgroundColor: '#fff',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        paddingTop: 10,
-        paddingBottom: 32,
-        paddingHorizontal: 20,
-    },
-    notebookMenuHandle: {
-        width: 36, height: 4, borderRadius: 2, backgroundColor: '#E5E7EB',
-        alignSelf: 'center', marginBottom: 16,
-    },
-    notebookMenuTitle: { fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 16 },
-    notebookMenuSectionLabel: { fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.8, marginBottom: 10, textTransform: 'uppercase' },
-    notebookColorRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginBottom: 4 },
-    notebookColorSwatch: { width: 30, height: 30, borderRadius: 15 },
-    notebookColorSwatchSelected: { borderWidth: 3, borderColor: '#111' },
-    notebookMenuDivider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 14 },
-    notebookMenuDeleteRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
-    notebookMenuDeleteText: { fontSize: 15, fontWeight: '600', color: '#EF4444' },
-    // Custom Delete Confirmation Modal
     deleteModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
     deleteModalContent: { backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 360, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 10 },
     deleteModalIconWrap: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
@@ -2201,7 +1501,6 @@ const drawerStyles = StyleSheet.create({
     colorModalMessage: { fontSize: 15, color: '#4b5563', marginBottom: 24, alignSelf: 'flex-start' },
     colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginBottom: 24, justifyContent: 'center' },
     colorSwatchLarge: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-    // New notebook input
     newNotebookRow: {
         flexDirection: 'row',
         alignItems: 'center',
