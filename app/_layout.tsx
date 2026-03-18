@@ -1,6 +1,7 @@
 import Auth, { type AuthMode } from '../components/Auth'
 import ProfileEditForm from '../components/ProfileEditForm'
 import ProfileHeader from '../components/ProfileHeader'
+import { AuthModalProvider, useAuthModal } from '../context/AuthModalContext'
 import { supabase } from '../lib/supabase'
 import type { Session } from '@supabase/supabase-js'
 import { Stack, usePathname, useRouter } from 'expo-router'
@@ -8,6 +9,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 
 export default function RootLayout() {
+  return (
+    <AuthModalProvider>
+      <RootLayoutInner />
+    </AuthModalProvider>
+  )
+}
+
+function RootLayoutInner() {
   const [session, setSession] = useState<Session | null>(null)
   const [displayName, setDisplayName] = useState<string | null>(null)
   /* drawer state — kept but disabled in favour of popover
@@ -15,8 +24,8 @@ export default function RootLayout() {
   const drawerAnim = useRef(new Animated.Value(0)).current
   const drawerWidth = 340
   */
-  const [authVisible, setAuthVisible] = useState(false)
-  const [authMode, setAuthMode] = useState<AuthMode>('signIn')
+  const { authVisible, openAuthModal, closeAuthModal } = useAuthModal()
+  const [authMode] = useState<AuthMode>('signIn')
   const [profileModalVisible, setProfileModalVisible] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null)
   const { height: screenHeight } = useWindowDimensions()
@@ -156,8 +165,7 @@ export default function RootLayout() {
                   style={styles.menuItem}
                   onPress={() => {
                     closeDrawer()
-                    setAuthMode('signIn')
-                    setAuthVisible(true)
+                    openAuthModal()
                   }}
                 >
                   <Text style={styles.menuItemText}>Login</Text>
@@ -166,8 +174,7 @@ export default function RootLayout() {
                   style={styles.menuItem}
                   onPress={() => {
                     closeDrawer()
-                    setAuthMode('signUp')
-                    setAuthVisible(true)
+                    openAuthModal()
                   }}
                 >
                   <Text style={styles.menuItemText}>Register</Text>
@@ -220,14 +227,14 @@ export default function RootLayout() {
         transparent
         visible={authVisible}
         animationType="slide"
-        onRequestClose={() => setAuthVisible(false)}
+        onRequestClose={closeAuthModal}
       >
-        <Pressable style={styles.backdrop} onPress={() => setAuthVisible(false)}>
+        <Pressable style={styles.backdrop} onPress={closeAuthModal}>
           <Pressable style={styles.sheet} onPress={() => {}}>
-            <Auth mode={authMode} onSuccess={() => setAuthVisible(false)} />
+            <Auth mode={authMode} onSuccess={closeAuthModal} />
             <Pressable
               style={[styles.menuItem, { marginTop: 8 }]}
-              onPress={() => setAuthVisible(false)}
+              onPress={closeAuthModal}
             >
               <Text style={styles.menuItemText}>Close</Text>
             </Pressable>

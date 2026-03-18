@@ -17,3 +17,9 @@
 [functions.note-style]
 verify_jwt = false
 
+[functions.ai-classifier]
+verify_jwt = false
+
+[functions.voice-transcribe]
+verify_jwt = false
+
