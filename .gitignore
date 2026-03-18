@@ -39,15 +39,6 @@ yarn-error.*
 
 app-example
 
-# local planning/docs
-Plans/
-.cursor
-CLAUDE.md
-CLAUDE.local.md
-tasks/
-.claude/
-.cursor/
-
 # generated native folders
 /ios
 /android
