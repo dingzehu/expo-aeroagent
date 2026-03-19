@@ -3,10 +3,13 @@ import ProfileEditForm from '../components/ProfileEditForm'
 import ProfileHeader from '../components/ProfileHeader'
 import { AuthModalProvider, useAuthModal } from '../context/AuthModalContext'
 import { supabase } from '../lib/supabase'
+import { tokens } from '../constants/tokens'
 import type { Session } from '@supabase/supabase-js'
+import { Ionicons } from '@expo/vector-icons'
 import { Stack, usePathname, useRouter } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 export default function RootLayout() {
   return (
@@ -31,6 +34,7 @@ function RootLayoutInner() {
   const { height: screenHeight } = useWindowDimensions()
   const pathname = usePathname()
   const router = useRouter()
+  const insets = useSafeAreaInsets()
 
   const fetchDisplayName = useCallback(async (userId: string) => {
     const { data } = await supabase
@@ -86,6 +90,13 @@ function RootLayoutInner() {
   */
 
   const showHeader = !!session?.user && (pathname === '/' || pathname === '/thoughts' || pathname === '/notes')
+  const showTabs = !!session?.user && (pathname === '/' || pathname === '/thoughts' || pathname === '/taskManager')
+
+  const TAB_ITEMS = [
+    { route: '/',            labelOff: 'flash-outline' as const,            labelOn: 'flash' as const,            label: 'Capture'  },
+    { route: '/thoughts',    labelOff: 'book-outline' as const,             labelOn: 'book' as const,             label: 'Thoughts' },
+    { route: '/taskManager', labelOff: 'checkmark-circle-outline' as const, labelOn: 'checkmark-circle' as const, label: 'Tasks'    },
+  ] as const
 
   return (
     <View style={styles.root}>
@@ -261,6 +272,31 @@ function RootLayoutInner() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Bottom tab bar */}
+      {showTabs && (
+        <View style={[styles.tabBar, { paddingBottom: insets.bottom || 8 }]}>
+          {TAB_ITEMS.map(tab => {
+            const active = pathname === tab.route
+            return (
+              <Pressable
+                key={tab.route}
+                style={styles.tabItem}
+                onPress={() => router.replace(tab.route as any)}
+              >
+                <Ionicons
+                  name={active ? tab.labelOn : tab.labelOff}
+                  size={22}
+                  color={active ? tokens.colors.primary : tokens.colors.textMuted}
+                />
+                <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
+                  {tab.label}
+                </Text>
+              </Pressable>
+            )
+          })}
+        </View>
+      )}
     </View>
   )
 }
@@ -384,5 +420,27 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#eee',
     marginHorizontal: 8,
+  },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: tokens.colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: tokens.colors.border,
+    ...Platform.select({ web: { boxShadow: '0 -1px 0 #E5E7EB' } as object, default: {} }),
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
+  },
+  tabLabel: {
+    fontSize: tokens.fontSize.xxs,
+    fontWeight: tokens.fontWeight.semibold,
+    color: tokens.colors.textMuted,
+    marginTop: 3,
+  },
+  tabLabelActive: {
+    color: tokens.colors.primary,
   },
 })

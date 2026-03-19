@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React, { useRef } from 'react';
 import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { tokens } from '../constants/tokens';
 
 interface ProfileHeaderProps {
     displayName?: string | null;
@@ -33,7 +34,7 @@ export default function ProfileHeader({ displayName, email, showBack, onBackPres
     return (
         <View style={[styles.container, { height: screenHeight * 0.15, paddingTop: insets.top }]}>
             <LinearGradient
-                colors={['#4F46E5', '#818CF8']}
+                colors={[tokens.colors.primaryDark, tokens.colors.primaryLight]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.gradient}
@@ -81,7 +82,7 @@ export default function ProfileHeader({ displayName, email, showBack, onBackPres
 const styles = StyleSheet.create({
     container: {
         width: '100%',
-        backgroundColor: '#4F46E5',
+        backgroundColor: tokens.colors.primaryDark,
         overflow: 'hidden',
         justifyContent: 'flex-end',
         paddingHorizontal: 24,
@@ -90,11 +91,12 @@ const styles = StyleSheet.create({
     },
     backButton: {
         position: 'absolute',
-        top: 50, // rough safe area adjustment, overriden by flex basically 
+        top: 50, // rough safe area adjustment, overriden by flex basically
         left: 20,
         zIndex: 20,
         flexDirection: 'row',
         alignItems: 'center',
+        ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
     },
     backText: {
         color: '#fff',
@@ -104,10 +106,11 @@ const styles = StyleSheet.create({
     },
     menuButton: {
         position: 'absolute',
-        top: 50, // rough safe area adjustment, overriden by flex basically 
+        top: 50, // rough safe area adjustment, overriden by flex basically
         right: 20,
         zIndex: 20,
         padding: 4,
+        ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
     },
     gradient: {
         ...StyleSheet.absoluteFillObject,
@@ -143,6 +146,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         borderRadius: 40,
+        ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
     },
     avatarText: {
         fontSize: 28,

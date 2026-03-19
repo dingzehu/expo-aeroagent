@@ -87,14 +87,19 @@ Deno.serve(async (req) => {
       .download(audioPath)
 
     if (downloadErr || !fileData) {
-      return json({ error: 'Transcription failed', detail: 'Could not download audio file' }, 422)
+      console.error('Storage download error:', downloadErr)
+      return json({ error: 'Transcription failed', detail: 'Could not download audio file from storage' }, 422)
+    }
+
+    // Guard: detect empty file (e.g. caused by a broken upload)
+    if (fileData.size === 0) {
+      return json({ error: 'Transcription failed', detail: 'Audio file is empty — upload may have failed' }, 422)
     }
 
     // 7) Send the audio to ElevenLabs Scribe for transcription.
-    //    ElevenLabs Scribe is chosen for its best-in-class multilingual accuracy
-    //    (99 languages, outperforms Whisper and Deepgram on non-English input).
+    const fileName = audioPath.split('/').pop() ?? 'audio.m4a'
     const formData = new FormData()
-    formData.append('file', fileData, audioPath.split('/').pop() ?? 'audio.webm')
+    formData.append('file', fileData, fileName)
     formData.append('model_id', 'scribe_v1')
 
     const elevenResp = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
@@ -107,8 +112,8 @@ Deno.serve(async (req) => {
 
     if (!elevenResp.ok) {
       const errText = await elevenResp.text()
-      console.error('ElevenLabs error:', errText)
-      return json({ error: 'Transcription failed' }, 422)
+      console.error(`[voice-transcribe] ElevenLabs HTTP ${elevenResp.status}:`, errText)
+      return json({ error: 'Transcription failed', detail: `ElevenLabs ${elevenResp.status}: ${errText}` }, 422)
     }
 
     const elevenJson = await elevenResp.json()
@@ -117,12 +122,13 @@ Deno.serve(async (req) => {
     const language_detected = elevenJson.language_code ?? elevenJson.detected_language ?? 'unknown'
 
     if (!transcript) {
-      return json({ error: 'Transcription failed' }, 422)
+      console.error('[voice-transcribe] ElevenLabs returned empty transcript. Response:', JSON.stringify(elevenJson))
+      return json({ error: 'Transcription failed', detail: 'ElevenLabs returned an empty transcript' }, 422)
     }
 
     return json({ transcript, language_detected })
   } catch (e) {
     console.error('voice-transcribe unexpected error:', e)
-    return json({ error: 'Transcription failed' }, 422)
+    return json({ error: 'Transcription failed', detail: String(e) }, 422)
   }
 })

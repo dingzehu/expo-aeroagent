@@ -29,6 +29,7 @@ import {
 import type { Session } from '@supabase/supabase-js'
 import { useAuthModal } from '../context/AuthModalContext'
 import { supabase } from '../lib/supabase'
+import { tokens } from '../constants/tokens'
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
@@ -147,6 +148,10 @@ export default function Index() {
 
   // Today's captures
   const [todayCaptures, setTodayCaptures] = useState<Capture[]>([])
+  const [loadingCaptures, setLoadingCaptures] = useState(true)
+
+  // Skeleton shimmer
+  const shimmerValue = useRef(new Animated.Value(0)).current
 
   // Derived
   const isRecording =
@@ -198,6 +203,7 @@ export default function Index() {
       .gte('created_at', startOfToday().toISOString())
       .order('created_at', { ascending: false })
     setTodayCaptures((data as Capture[]) ?? [])
+    setLoadingCaptures(false)
   }, [])
 
   // ─── Realtime subscription ─────────────────────────────────────────────────
@@ -228,6 +234,20 @@ export default function Index() {
       supabase.removeChannel(channel)
     }
   }, [session?.user?.id, fetchStats, fetchTodayCaptures])
+
+  // ─── Skeleton shimmer animation ────────────────────────────────────────────
+  useEffect(() => {
+    if (!loadingCaptures) return
+    const anim = Animated.loop(
+      Animated.timing(shimmerValue, {
+        toValue: 1,
+        duration: 1200,
+        useNativeDriver: true,
+      })
+    )
+    anim.start()
+    return () => anim.stop()
+  }, [loadingCaptures, shimmerValue])
 
   // ─── Feedback shelf animation ──────────────────────────────────────────────
   const openShelf = useCallback((targetHeight: number) => {
@@ -270,7 +290,9 @@ export default function Index() {
 
   // ─── Waveform update helper ────────────────────────────────────────────────
   const updateWaveform = useCallback((amplitude: number) => {
-    const level = Math.max(0, (amplitude + 160) / 160)
+    // dBFS: ambient silence ≈ −50, speech ≈ −20, loud ≈ 0.
+    // Map −50..0 → 0..1 so the mic sits flat when idle.
+    const level = Math.max(0, Math.min(1, (amplitude + 50) / 50))
     const barHeight = 4 + level * 44 // 4–48px
     const current = waveformValues.map((v) => (v as any)._value as number)
     current.shift()
@@ -527,20 +549,20 @@ export default function Index() {
       // Upload audio to Supabase Storage
       const fileName = `${userId}/${Date.now()}.m4a`
       const response = await fetch(uri)
-      const blob = await response.blob()
+      const arrayBuffer = await response.arrayBuffer()
       const { error: uploadErr } = await supabase.storage
         .from('voice-captures')
-        .upload(fileName, blob, { contentType: 'audio/m4a', upsert: false })
+        .upload(fileName, arrayBuffer, { contentType: 'audio/m4a', upsert: false })
 
       if (uploadErr) throw uploadErr
       storagePath = fileName
 
       // Transcribe
       setProcessingLabel('Transcribing...')
-      const transcribeResult = await callEdgeFunction('voice-transcribe', {
+      const transcribeResult = await callEdgeFunction('voice-transcribe-deepgram', {
         audio_storage_path: storagePath,
       })
-      if (transcribeResult.error) throw new Error(transcribeResult.error)
+      if (transcribeResult.error) throw new Error(`${transcribeResult.error}${transcribeResult.detail ? ` | ${transcribeResult.detail}` : ''}`)
       transcript = transcribeResult.transcript
 
       // Classify
@@ -800,8 +822,37 @@ export default function Index() {
           </View>
 
           {/* ── Today's captures ──────────────────────────────────────── */}
+          {/* Section header — only when loaded and has items */}
+          {!loadingCaptures && todayCaptures.length > 0 && (
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionHeaderText}>Today</Text>
+              <Text style={styles.sectionHeaderCount}>{todayCaptures.length}</Text>
+            </View>
+          )}
+
           <View style={styles.capturesList}>
-            {todayCaptures.length === 0 ? (
+            {loadingCaptures ? (
+              // Skeleton rows while loading
+              [0, 1, 2].map((i) => {
+                const shimmerTranslate = shimmerValue.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-120, 300],
+                })
+                return (
+                  <View key={i} style={[styles.captureItem, { overflow: 'hidden' }]}>
+                    <View style={styles.skeletonBadge} />
+                    <View style={{ flex: 1, gap: 6 }}>
+                      <View style={styles.skeletonTextWide} />
+                      <View style={styles.skeletonTextNarrow} />
+                    </View>
+                    <View style={styles.skeletonTime} />
+                    <Animated.View
+                      style={[styles.skeletonShimmer, { transform: [{ translateX: shimmerTranslate }] }]}
+                    />
+                  </View>
+                )
+              })
+            ) : todayCaptures.length === 0 ? (
               <View style={styles.emptyState}>
                 <Ionicons name="document-text-outline" size={40} color="#E5E7EB" />
                 <Text style={styles.emptyTitle}>No captures today</Text>
@@ -833,15 +884,6 @@ export default function Index() {
             )}
           </View>
 
-          {/* ── Ghost buttons ─────────────────────────────────────────── */}
-          <View style={styles.ghostRow}>
-            <Pressable style={styles.ghostButton} onPress={() => router.push('/thoughts')}>
-              <Text style={styles.ghostButtonText}>Thoughts</Text>
-            </Pressable>
-            <Pressable style={styles.ghostButton} onPress={() => router.push('/taskManager')}>
-              <Text style={styles.ghostButtonText}>Open Task Manager</Text>
-            </Pressable>
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -881,6 +923,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     paddingVertical: 12,
     borderRadius: 12,
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
   },
   signInButtonText: {
     color: '#fff',
@@ -890,7 +933,7 @@ const styles = StyleSheet.create({
 
   // Scroll
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 80,
   },
 
   // Stats bar
@@ -1045,6 +1088,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#6366F1',
     alignItems: 'center',
     justifyContent: 'center',
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
   },
   sendButtonDisabled: {
     opacity: 0.5,
@@ -1131,10 +1175,65 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     alignItems: 'center',
     backgroundColor: 'transparent',
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
   },
   ghostButtonText: {
     fontSize: 14,
     fontWeight: '600',
     color: '#374151',
+  },
+
+  // Section header (Today)
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingTop: 16,
+    paddingBottom: 6,
+  },
+  sectionHeaderText: {
+    fontSize: tokens.fontSize.base,
+    fontWeight: tokens.fontWeight.extrabold,
+    color: tokens.colors.textPrimary,
+  },
+  sectionHeaderCount: {
+    fontSize: tokens.fontSize.sm,
+    fontWeight: tokens.fontWeight.semibold,
+    color: tokens.colors.textMuted,
+  },
+
+  // Skeleton loader
+  skeletonBadge: {
+    width: 60,
+    height: 20,
+    borderRadius: 6,
+    backgroundColor: tokens.colors.border,
+  },
+  skeletonTextWide: {
+    height: 12,
+    borderRadius: 8,
+    backgroundColor: tokens.colors.border,
+    width: '70%',
+  },
+  skeletonTextNarrow: {
+    height: 12,
+    borderRadius: 8,
+    backgroundColor: tokens.colors.border,
+    width: '40%',
+  },
+  skeletonTime: {
+    width: 40,
+    height: 12,
+    borderRadius: 8,
+    backgroundColor: tokens.colors.border,
+    alignSelf: 'flex-start',
+  },
+  skeletonShimmer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 120,
+    backgroundColor: 'rgba(255,255,255,0.55)',
   },
 })

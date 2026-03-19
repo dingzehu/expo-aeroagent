@@ -2,6 +2,7 @@ import { NoteEditorCard } from '@/components/NoteEditorCard'
 import { PersonaPill } from '@/components/PersonaPill'
 import { PERSONAS, PERSONA_HELP, useNoteEditor } from '@/lib/noteHelpers'
 import { supabase } from '@/lib/supabase'
+import { tokens } from '@/constants/tokens'
 import { Ionicons, MaterialIcons } from '@expo/vector-icons'
 import type { Session } from '@supabase/supabase-js'
 import * as Haptics from 'expo-haptics'
@@ -185,6 +186,7 @@ export default function ThoughtsScreen() {
     // Drawer
     const [drawerVisible, setDrawerVisible] = useState(false)
     const drawerAnim = useRef(new Animated.Value(0)).current
+    const shimmerValue = useRef(new Animated.Value(0)).current
 
     // Search & notebook management
     const [mainSearch, setMainSearch] = useState('')
@@ -257,6 +259,20 @@ export default function ThoughtsScreen() {
     }, [])
 
     useEffect(() => { fetchData() }, [fetchData])
+
+    // Shimmer animation while loading
+    useEffect(() => {
+        if (!loading) return
+        const anim = Animated.loop(
+            Animated.timing(shimmerValue, {
+                toValue: 1,
+                duration: 1200,
+                useNativeDriver: true,
+            })
+        )
+        anim.start()
+        return () => anim.stop()
+    }, [loading, shimmerValue])
 
     useEffect(() => {
         const userId = session?.user?.id
@@ -684,8 +700,25 @@ export default function ThoughtsScreen() {
                         {/* Panel 1: Notes list */}
                         <View style={{ width: contentWidth, flex: 1 }}>
                             {loading ? (
-                                <View style={styles.center}>
-                                    <ActivityIndicator size="large" color="#6366F1" />
+                                <View style={{ padding: 16 }}>
+                                    {[0, 1, 2, 3].map(i => {
+                                        const shimmerTranslate = shimmerValue.interpolate({
+                                            inputRange: [0, 1],
+                                            outputRange: [-120, 300],
+                                        })
+                                        return (
+                                            <View key={i} style={[styles.skeletonRow, { overflow: 'hidden' }]}>
+                                                <View style={styles.skeletonDot} />
+                                                <View style={{ flex: 1, gap: 6 }}>
+                                                    <View style={styles.skeletonTitle} />
+                                                    <View style={styles.skeletonPreview} />
+                                                </View>
+                                                <Animated.View
+                                                    style={[styles.skeletonShimmer, { transform: [{ translateX: shimmerTranslate }] }]}
+                                                />
+                                            </View>
+                                        )
+                                    })}
                                 </View>
                             ) : !session?.user ? (
                                 <View style={styles.center}>
@@ -1030,7 +1063,7 @@ export default function ThoughtsScreen() {
                                                 {noteActionsTarget?.title || '(Untitled)'}
                                             </Text>
                                             <Pressable style={styles.popoverItem} onPress={() => handleSetPopoverMode('picker')}>
-                                                <Ionicons name="folder-outline" size={18} color="#4F46E5" />
+                                                <Ionicons name="folder-outline" size={18} color={tokens.colors.primary} />
                                                 <Text style={styles.popoverItemText}>Add to Notebook</Text>
                                             </Pressable>
                                             <Pressable
@@ -1057,10 +1090,10 @@ export default function ThoughtsScreen() {
                                                     disabled={!!assigningNotebookId}
                                                 >
                                                     <View style={[styles.colorDot, { backgroundColor: '#e0e0e0', marginHorizontal: 0, marginRight: 8 }]} />
-                                                    <Text style={[styles.popoverItemText, noteActionsTarget?.notebook_id === null && { fontWeight: '700', color: '#4F46E5' }]}>
+                                                    <Text style={[styles.popoverItemText, noteActionsTarget?.notebook_id === null && { fontWeight: '700', color: tokens.colors.primary }]}>
                                                         General Notes
                                                     </Text>
-                                                    {assigningNotebookId === '__remove__' && <ActivityIndicator size="small" color="#4F46E5" style={{ marginLeft: 'auto' }} />}
+                                                    {assigningNotebookId === '__remove__' && <ActivityIndicator size="small" color={tokens.colors.primary} style={{ marginLeft: 'auto' }} />}
                                                 </Pressable>
                                                 {notebooks.map(nb => (
                                                     <Pressable
@@ -1070,10 +1103,10 @@ export default function ThoughtsScreen() {
                                                         disabled={!!assigningNotebookId}
                                                     >
                                                         <View style={[styles.colorDot, { backgroundColor: nb.colour_tag || '#e0e0e0', marginHorizontal: 0, marginRight: 8 }]} />
-                                                        <Text style={[styles.popoverItemText, noteActionsTarget?.notebook_id === nb.id && { fontWeight: '700', color: '#4F46E5' }]}>
+                                                        <Text style={[styles.popoverItemText, noteActionsTarget?.notebook_id === nb.id && { fontWeight: '700', color: tokens.colors.primary }]}>
                                                             {nb.name}
                                                         </Text>
-                                                        {assigningNotebookId === nb.id && <ActivityIndicator size="small" color="#4F46E5" style={{ marginLeft: 'auto' }} />}
+                                                        {assigningNotebookId === nb.id && <ActivityIndicator size="small" color={tokens.colors.primary} style={{ marginLeft: 'auto' }} />}
                                                     </Pressable>
                                                 ))}
                                             </ScrollView>
@@ -1136,7 +1169,7 @@ const styles = StyleSheet.create({
         gap: 6,
         backgroundColor: '#6366F1',
         ...Platform.select({
-            web: { paddingVertical: 8, paddingHorizontal: 16 },
+            web: { paddingVertical: 8, paddingHorizontal: 16, cursor: 'pointer' },
             default: { paddingVertical: 5, paddingHorizontal: 10 },
         }),
         borderRadius: 10,
@@ -1158,7 +1191,7 @@ const styles = StyleSheet.create({
         gap: 6,
         backgroundColor: '#6366F1',
         ...Platform.select({
-            web: { paddingVertical: 12, paddingHorizontal: 20 },
+            web: { paddingVertical: 12, paddingHorizontal: 20, cursor: 'pointer' },
             default: { paddingVertical: 8, paddingHorizontal: 14 },
         }),
         borderRadius: 10,
@@ -1274,8 +1307,44 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.4,
         shadowRadius: 16,
         elevation: 12,
+        cursor: 'pointer' as any,
     },
     fabWebText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+    // Skeleton loader
+    skeletonRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 4,
+        marginBottom: 4,
+    },
+    skeletonDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: tokens.colors.border,
+    },
+    skeletonTitle: {
+        height: 14,
+        borderRadius: 8,
+        backgroundColor: tokens.colors.border,
+        width: '60%',
+    },
+    skeletonPreview: {
+        height: 12,
+        borderRadius: 8,
+        backgroundColor: tokens.colors.border,
+        width: '80%',
+    },
+    skeletonShimmer: {
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        width: 120,
+        backgroundColor: 'rgba(255,255,255,0.55)',
+    },
 })
 
 // ─── Note row styles ──────────────────────────────────────────────────────────
@@ -1440,7 +1509,7 @@ const drawerStyles = StyleSheet.create({
     notebookRowSelected: { backgroundColor: '#EEF2FF' },
     notebookRowPressable: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingRight: 8 },
     notebookName: { flex: 1, fontSize: 14, fontWeight: '600', color: '#111' },
-    notebookNameSelected: { color: '#4F46E5', fontWeight: '700' },
+    notebookNameSelected: { color: tokens.colors.primary, fontWeight: '700' },
     notebookNameSelectedWeb: { color: '#fff', fontWeight: '700' },
     notebookCountSelectedWeb: { color: 'rgba(255,255,255,0.7)' },
     notebookCount: { fontSize: 12, color: '#9CA3AF', fontWeight: '600' },

@@ -20,6 +20,9 @@ verify_jwt = false
 [functions.ai-classifier]
 verify_jwt = false
 
-[functions.voice-transcribe]
+[functions.voice-transcribe-elevenlabs]
+verify_jwt = false
+
+[functions.voice-transcribe-deepgram]
 verify_jwt = false
 

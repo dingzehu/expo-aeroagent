@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native'
 import { MarkdownView } from './MarkdownView'
+import { tokens } from '../constants/tokens'
 
 interface NoteEditorCardProps {
   previewMarkdown: string
@@ -193,6 +194,7 @@ export const cardStyles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     backgroundColor: '#F3F4F6',
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
   },
   backToDraftText: {
     fontSize: 12,
@@ -282,12 +284,13 @@ export const cardStyles = StyleSheet.create({
     gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#10B981',
+    backgroundColor: tokens.colors.success,
     borderRadius: 14,
     paddingVertical: 12,
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
   },
   copyButtonCopied: {
-    backgroundColor: '#059669',
+    backgroundColor: tokens.colors.successDark,
   },
   copyButtonText: {
     color: '#fff',
@@ -303,6 +306,7 @@ export const cardStyles = StyleSheet.create({
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
   },
   aiErrorText: {
     fontSize: 12,

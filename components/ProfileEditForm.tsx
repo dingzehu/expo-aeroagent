@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native'
 import { supabase } from '../lib/supabase'
+import { tokens } from '../constants/tokens'
 
 interface ProfileEditFormProps {
   onDone: () => void
@@ -76,7 +77,7 @@ export default function ProfileEditForm({ onDone }: ProfileEditFormProps) {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#4F46E5" />
+        <ActivityIndicator size="large" color={tokens.colors.primary} />
       </View>
     )
   }
@@ -175,11 +176,12 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   button: {
-    backgroundColor: '#4F46E5',
+    backgroundColor: tokens.colors.primary,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 8,
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
   },
   buttonDisabled: {
     opacity: 0.6,

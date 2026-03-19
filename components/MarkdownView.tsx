@@ -1,5 +1,6 @@
 import React from 'react'
 import { Platform, StyleSheet, Text, View } from 'react-native'
+import { tokens } from '../constants/tokens'
 
 /**
  * MarkdownView
@@ -83,7 +84,7 @@ const nativeMarkdownStyles = StyleSheet.create({
   },
   blockquote: {
     borderLeftWidth: 3,
-    borderLeftColor: '#4630EB',
+    borderLeftColor: tokens.colors.primary,
     paddingLeft: 10,
     color: '#333',
     marginBottom: 8,

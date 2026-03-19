@@ -1,5 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient'
 import { StyleSheet } from 'react-native'
+import { tokens } from '../constants/tokens'
 
 /**
  * Shared gradient background for Stack navigation headers.
@@ -11,7 +12,7 @@ import { StyleSheet } from 'react-native'
 export function GradientHeaderBg() {
   return (
     <LinearGradient
-      colors={['#4F46E5', '#818CF8']}
+      colors={[tokens.colors.primaryDark, tokens.colors.primaryLight]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={StyleSheet.absoluteFill}

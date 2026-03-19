@@ -5,6 +5,7 @@ import {
     ActivityIndicator,
     Alert,
     AppState,
+    Platform,
     Pressable,
     StyleSheet,
     Text,
@@ -12,6 +13,7 @@ import {
     View,
 } from 'react-native'
 import { supabase } from '../lib/supabase'
+import { tokens } from '../constants/tokens'
 
 export type AuthMode = 'signIn' | 'signUp'
 
@@ -197,13 +199,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     width: 34,
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
   },
   button: {
-    backgroundColor: '#4630EB',
+    backgroundColor: tokens.colors.primary,
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',
     marginBottom: 10,
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
   },
   buttonDisabled: {
     opacity: 0.6,

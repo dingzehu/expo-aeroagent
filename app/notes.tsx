@@ -29,6 +29,7 @@ import {
   useNoteEditor,
 } from '../lib/noteHelpers'
 import { supabase } from '../lib/supabase'
+import { tokens } from '../constants/tokens'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -589,7 +590,7 @@ export default function NotebookScreen() {
                         <Ionicons
                           name={isExpanded ? 'chevron-down' : 'chevron-forward'}
                           size={16}
-                          color={groupId === currentNotebookId ? '#4F46E5' : '#666'}
+                          color={groupId === currentNotebookId ? tokens.colors.primary : '#666'}
                         />
                       </Pressable>
                       <Pressable
@@ -600,7 +601,7 @@ export default function NotebookScreen() {
                           <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: group.colour, marginRight: 8 }} />
                         )}
                         <Text
-                          style={[styles.noteGroupTitle, groupId === currentNotebookId && { color: '#4F46E5', fontWeight: '900' }]}
+                          style={[styles.noteGroupTitle, groupId === currentNotebookId && { color: tokens.colors.primary, fontWeight: '900' }]}
                           numberOfLines={1}
                         >
                           {group.notebookName} ({group.notes.length})
@@ -856,7 +857,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: '#fff',
   },
-  studioToolbarBtn: { padding: 6 },
+  studioToolbarBtn: { padding: 6, ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }) },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
