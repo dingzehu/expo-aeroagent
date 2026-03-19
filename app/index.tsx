@@ -70,6 +70,29 @@ const CHIP_LABEL: Record<string, { bg: string; text: string }> = {
   unclassified:  { bg: '#6B7280', text: '✓  Captured' },
 }
 
+type ExtractedItem = {
+  type: 'task' | 'shopping' | 'journal' | 'unclassified'
+  title?: string
+  due_date_hint?: string
+  item_name?: string
+  quantity?: string
+  content?: string
+  mood?: string
+}
+
+function buildSuccessChip(items: ExtractedItem[]): { bg: string; text: string } {
+  if (items.length <= 1) {
+    const type = items[0]?.type ?? 'unclassified'
+    return CHIP_LABEL[type] ?? CHIP_LABEL.unclassified
+  }
+  const counts: Partial<Record<string, number>> = {}
+  for (const item of items) {
+    counts[item.type] = (counts[item.type] ?? 0) + 1
+  }
+  const parts = Object.entries(counts).map(([type, n]) => `${n} ${type}`)
+  return { bg: '#6366F1', text: `✓  ${parts.join(' + ')}` }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
@@ -96,6 +119,31 @@ function startOfToday(): Date {
   d.setHours(0, 0, 0, 0)
   return d
 }
+
+function sevenDaysAgo(): Date {
+  const d = new Date()
+  d.setDate(d.getDate() - 7)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+function dateLabelFor(iso: string): string {
+  const date = new Date(iso)
+  const today = startOfToday()
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+
+  if (date >= today) return 'Today'
+  if (date >= yesterday) return 'Yesterday'
+
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const weekStart = startOfWeek()
+  if (date >= weekStart) return dayNames[date.getDay()]
+
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+type CaptureSection = { label: string; data: Capture[] }
 
 function triggerHaptic(type: 'light' | 'medium' | 'success') {
   if (Platform.OS === 'web') return
@@ -133,6 +181,7 @@ export default function Index() {
   const [feedbackState, setFeedbackState] = useState<FeedbackState>('idle')
   const [processingLabel, setProcessingLabel] = useState<ProcessingLabel>('Classifying...')
   const [successClassification, setSuccessClassification] = useState<string | null>(null)
+  const [successChipOverride, setSuccessChipOverride] = useState<{ bg: string; text: string } | null>(null)
   const feedbackHeight = useRef(new Animated.Value(0)).current
   const chipScale = useRef(new Animated.Value(0.85)).current
   const chipOpacity = useRef(new Animated.Value(1)).current
@@ -146,9 +195,12 @@ export default function Index() {
   const [weekCaptureCount, setWeekCaptureCount] = useState<number>(0)
   const [lastCaptureAt, setLastCaptureAt] = useState<string | null>(null)
 
-  // Today's captures
-  const [todayCaptures, setTodayCaptures] = useState<Capture[]>([])
+  // Recent captures (7-day rolling window)
+  const [recentCaptures, setRecentCaptures] = useState<Capture[]>([])
   const [loadingCaptures, setLoadingCaptures] = useState(true)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [completedCaptureIds, setCompletedCaptureIds] = useState<Set<string>>(new Set())
 
   // Skeleton shimmer
   const shimmerValue = useRef(new Animated.Value(0)).current
@@ -194,17 +246,89 @@ export default function Index() {
     setLastCaptureAt(lastRow?.created_at ?? null)
   }, [])
 
-  // ─── Today's captures fetch ────────────────────────────────────────────────
-  const fetchTodayCaptures = useCallback(async (userId: string) => {
+  // ─── Recent captures fetch (7-day rolling) ────────────────────────────────
+  const PAGE_SIZE = 20
+
+  const fetchCompletionStatus = useCallback(async (captures: Capture[]) => {
+    const captureIds = captures
+      .filter(c => c.classification !== 'processing' && c.classification !== 'unclassified')
+      .map(c => c.id)
+      .filter(id => !id.startsWith('optimistic-'))
+    if (captureIds.length === 0) return new Set<string>()
+
+    const [{ data: tasks }, { data: shopping }] = await Promise.all([
+      supabase.from('tasks').select('capture_id, completed').in('capture_id', captureIds),
+      supabase.from('shopping_items').select('capture_id, completed').in('capture_id', captureIds),
+    ])
+
+    const allItems = [...(tasks ?? []), ...(shopping ?? [])]
+    const grouped: Record<string, boolean[]> = {}
+    for (const row of allItems) {
+      if (!row.capture_id) continue
+      if (!grouped[row.capture_id]) grouped[row.capture_id] = []
+      grouped[row.capture_id].push(row.completed)
+    }
+
+    const completed = new Set<string>()
+    for (const cap of captures) {
+      if (cap.classification === 'journal') {
+        completed.add(cap.id)
+      } else if (grouped[cap.id] && grouped[cap.id].length > 0 && grouped[cap.id].every(Boolean)) {
+        completed.add(cap.id)
+      }
+    }
+    return completed
+  }, [])
+
+  const fetchRecentCaptures = useCallback(async (userId: string) => {
     const { data } = await supabase
       .from('captures')
       .select('*')
       .eq('user_id', userId)
-      .gte('created_at', startOfToday().toISOString())
+      .gte('created_at', sevenDaysAgo().toISOString())
       .order('created_at', { ascending: false })
-    setTodayCaptures((data as Capture[]) ?? [])
+      .limit(PAGE_SIZE + 1)
+
+    const rows = (data as Capture[]) ?? []
+    const hasMoreRows = rows.length > PAGE_SIZE
+    const page = hasMoreRows ? rows.slice(0, PAGE_SIZE) : rows
+
+    setRecentCaptures(page)
+    setHasMore(hasMoreRows)
     setLoadingCaptures(false)
-  }, [])
+
+    const completedIds = await fetchCompletionStatus(page)
+    setCompletedCaptureIds(completedIds)
+  }, [fetchCompletionStatus])
+
+  const loadMoreCaptures = useCallback(async (userId: string) => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+
+    const lastItem = recentCaptures[recentCaptures.length - 1]
+    if (!lastItem) { setLoadingMore(false); return }
+
+    const { data } = await supabase
+      .from('captures')
+      .select('*')
+      .eq('user_id', userId)
+      .lt('created_at', lastItem.created_at)
+      .gte('created_at', sevenDaysAgo().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(PAGE_SIZE + 1)
+
+    const rows = (data as Capture[]) ?? []
+    const hasMoreRows = rows.length > PAGE_SIZE
+    const page = hasMoreRows ? rows.slice(0, PAGE_SIZE) : rows
+
+    const merged = [...recentCaptures, ...page]
+    setRecentCaptures(merged)
+    setHasMore(hasMoreRows)
+    setLoadingMore(false)
+
+    const completedIds = await fetchCompletionStatus(merged)
+    setCompletedCaptureIds(completedIds)
+  }, [recentCaptures, hasMore, loadingMore, fetchCompletionStatus])
 
   // ─── Realtime subscription ─────────────────────────────────────────────────
   useEffect(() => {
@@ -212,9 +336,8 @@ export default function Index() {
     const userId = session.user.id
 
     fetchStats(userId)
-    fetchTodayCaptures(userId)
+    fetchRecentCaptures(userId)
 
-    // Stats refresh every 60s for relative time accuracy
     const statsInterval = setInterval(() => fetchStats(userId), 60000)
 
     const channel = supabase
@@ -224,7 +347,7 @@ export default function Index() {
         { event: 'INSERT', schema: 'public', table: 'captures', filter: `user_id=eq.${userId}` },
         () => {
           fetchStats(userId)
-          fetchTodayCaptures(userId)
+          fetchRecentCaptures(userId)
         }
       )
       .subscribe()
@@ -233,7 +356,7 @@ export default function Index() {
       clearInterval(statsInterval)
       supabase.removeChannel(channel)
     }
-  }, [session?.user?.id, fetchStats, fetchTodayCaptures])
+  }, [session?.user?.id, fetchStats, fetchRecentCaptures])
 
   // ─── Skeleton shimmer animation ────────────────────────────────────────────
   useEffect(() => {
@@ -389,6 +512,7 @@ export default function Index() {
       }).start(() => {
         setFeedbackState('idle')
         setSuccessClassification(null)
+        setSuccessChipOverride(null)
         closeShelf()
       })
     }, 2500)
@@ -422,7 +546,7 @@ export default function Index() {
     rawText: string,
     classification: string,
     confidence: number,
-    extracted: Record<string, unknown>,
+    items: ExtractedItem[],
     source: 'text' | 'voice',
   ) => {
     const { data: captureRow } = await supabase
@@ -432,7 +556,7 @@ export default function Index() {
         raw_text: rawText,
         classification,
         ai_confidence: confidence,
-        extracted_data: extracted,
+        extracted_data: { items },
         source,
       })
       .select()
@@ -440,27 +564,33 @@ export default function Index() {
 
     const captureId = captureRow?.id ?? null
 
-    if (classification === 'task') {
-      await supabase.from('tasks').insert({
-        user_id: userId,
-        capture_id: captureId,
-        title: (extracted.title as string) ?? rawText,
-      })
-    } else if (classification === 'shopping') {
-      await supabase.from('shopping_items').insert({
-        user_id: userId,
-        capture_id: captureId,
-        item_name: (extracted.item_name as string) ?? rawText,
-        quantity: (extracted.quantity as string) ?? null,
-      })
-    } else if (classification === 'journal') {
-      await supabase.from('journal_entries').insert({
-        user_id: userId,
-        capture_id: captureId,
-        content: (extracted.content as string) ?? rawText,
-        mood: (extracted.mood as string) ?? null,
-      })
-    }
+    const insertPromises = items.map((item) => {
+      if (item.type === 'task') {
+        return supabase.from('tasks').insert({
+          user_id: userId,
+          capture_id: captureId,
+          title: item.title ?? rawText,
+          due_date: item.due_date_hint ?? null,
+        })
+      } else if (item.type === 'shopping') {
+        return supabase.from('shopping_items').insert({
+          user_id: userId,
+          capture_id: captureId,
+          item_name: item.item_name ?? rawText,
+          quantity: item.quantity ?? null,
+        })
+      } else if (item.type === 'journal') {
+        return supabase.from('journal_entries').insert({
+          user_id: userId,
+          capture_id: captureId,
+          content: item.content ?? rawText,
+          mood: item.mood ?? null,
+        })
+      }
+      return Promise.resolve()
+    })
+
+    await Promise.all(insertPromises)
 
     return captureRow as Capture | null
   }, [])
@@ -472,7 +602,7 @@ export default function Index() {
     const optimisticId = `optimistic-${Date.now()}`
 
     setInputText('')
-    setTodayCaptures(prev => [{
+    setRecentCaptures(prev => [{
       id: optimisticId,
       user_id: userId,
       raw_text: text,
@@ -490,20 +620,27 @@ export default function Index() {
 
     try {
       const result = await callEdgeFunction('ai-classifier', { raw_text: text })
-      const { classification = 'unclassified', confidence = 0, extracted = {} } = result
+      const { classification = 'unclassified', confidence = 0 } = result
+      const items: ExtractedItem[] = Array.isArray(result.items) && result.items.length > 0
+        ? result.items
+        : [{ type: classification }]
 
-      const saved = await saveCapture(userId, text, classification, confidence, extracted, 'text')
+      const saved = await saveCapture(userId, text, classification, confidence, items, 'text')
 
-      setTodayCaptures(prev => prev.map(c =>
+      setRecentCaptures(prev => prev.map(c =>
         c.id === optimisticId ? (saved ?? { ...c, classification, id: Date.now().toString() }) : c
       ))
+      const chip = buildSuccessChip(items)
+      setSuccessChipOverride(chip)
       showSuccess(classification)
     } catch (e) {
       console.error('submitText error', e)
-      const saved = await saveCapture(userId, text, 'unclassified', 0, {}, 'text').catch(() => null)
-      setTodayCaptures(prev => prev.map(c =>
+      const fallbackItems: ExtractedItem[] = [{ type: 'unclassified' }]
+      const saved = await saveCapture(userId, text, 'unclassified', 0, fallbackItems, 'text').catch(() => null)
+      setRecentCaptures(prev => prev.map(c =>
         c.id === optimisticId ? (saved ?? { ...c, classification: 'unclassified' }) : c
       ))
+      setSuccessChipOverride(null)
       showSuccess('unclassified')
     }
   }, [session, callEdgeFunction, saveCapture, showSuccess, openShelf])
@@ -524,7 +661,7 @@ export default function Index() {
     } catch {}
     const uri = audioRecorder.uri
 
-    setTodayCaptures(prev => [{
+    setRecentCaptures(prev => [{
       id: optimisticId,
       user_id: userId,
       raw_text: null,
@@ -568,20 +705,27 @@ export default function Index() {
       // Classify
       setProcessingLabel('Classifying...')
       const classifyResult = await callEdgeFunction('ai-classifier', { raw_text: transcript })
-      const { classification = 'unclassified', confidence = 0, extracted = {} } = classifyResult
+      const { classification = 'unclassified', confidence = 0 } = classifyResult
+      const items: ExtractedItem[] = Array.isArray(classifyResult.items) && classifyResult.items.length > 0
+        ? classifyResult.items
+        : [{ type: classification }]
 
-      const saved = await saveCapture(userId, transcript!, classification, confidence, extracted, 'voice')
-      setTodayCaptures(prev => prev.map(c =>
+      const saved = await saveCapture(userId, transcript!, classification, confidence, items, 'voice')
+      setRecentCaptures(prev => prev.map(c =>
         c.id === optimisticId ? (saved ?? { ...c, classification }) : c
       ))
+      const chip = buildSuccessChip(items)
+      setSuccessChipOverride(chip)
       showSuccess(classification)
     } catch (e) {
       console.error('voice capture error', e)
       const fallbackText = transcript ?? '[Voice capture — upload failed]'
-      const saved = await saveCapture(userId, fallbackText, 'unclassified', 0, {}, 'voice').catch(() => null)
-      setTodayCaptures(prev => prev.map(c =>
+      const fallbackItems: ExtractedItem[] = [{ type: 'unclassified' }]
+      const saved = await saveCapture(userId, fallbackText, 'unclassified', 0, fallbackItems, 'voice').catch(() => null)
+      setRecentCaptures(prev => prev.map(c =>
         c.id === optimisticId ? (saved ?? { ...c, classification: 'unclassified', raw_text: fallbackText }) : c
       ))
+      setSuccessChipOverride(null)
       showSuccess('unclassified')
     }
   }, [session, audioRecorder, stopPulse, stopTimer, callEdgeFunction, saveCapture, showSuccess, openShelf])
@@ -756,19 +900,20 @@ export default function Index() {
             )}
 
             {/* STATE D — SUCCESS */}
-            {feedbackState === 'success' && successClassification && (
-              <Animated.View style={[styles.shelfSuccessOuter, { opacity: chipOpacity }]}>
-                <Animated.View style={[
-                  styles.chip,
-                  { backgroundColor: CHIP_LABEL[successClassification]?.bg ?? '#6B7280' },
-                  { transform: [{ scale: chipScale }] },
-                ]}>
-                  <Text style={styles.chipText}>
-                    {CHIP_LABEL[successClassification]?.text ?? '✓ Captured'}
-                  </Text>
+            {feedbackState === 'success' && successClassification && (() => {
+              const chipInfo = successChipOverride ?? CHIP_LABEL[successClassification] ?? CHIP_LABEL.unclassified
+              return (
+                <Animated.View style={[styles.shelfSuccessOuter, { opacity: chipOpacity }]}>
+                  <Animated.View style={[
+                    styles.chip,
+                    { backgroundColor: chipInfo.bg },
+                    { transform: [{ scale: chipScale }] },
+                  ]}>
+                    <Text style={styles.chipText}>{chipInfo.text}</Text>
+                  </Animated.View>
                 </Animated.View>
-              </Animated.View>
-            )}
+              )
+            })()}
           </Animated.View>
 
           {/* ── Action row ────────────────────────────────────────────── */}
@@ -821,18 +966,9 @@ export default function Index() {
             </Pressable>
           </View>
 
-          {/* ── Today's captures ──────────────────────────────────────── */}
-          {/* Section header — only when loaded and has items */}
-          {!loadingCaptures && todayCaptures.length > 0 && (
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeaderText}>Today</Text>
-              <Text style={styles.sectionHeaderCount}>{todayCaptures.length}</Text>
-            </View>
-          )}
-
+          {/* ── Captures history (7-day rolling) ────────────────────── */}
           <View style={styles.capturesList}>
             {loadingCaptures ? (
-              // Skeleton rows while loading
               [0, 1, 2].map((i) => {
                 const shimmerTranslate = shimmerValue.interpolate({
                   inputRange: [0, 1],
@@ -852,35 +988,72 @@ export default function Index() {
                   </View>
                 )
               })
-            ) : todayCaptures.length === 0 ? (
+            ) : recentCaptures.length === 0 ? (
               <View style={styles.emptyState}>
                 <Ionicons name="document-text-outline" size={40} color="#E5E7EB" />
-                <Text style={styles.emptyTitle}>No captures today</Text>
+                <Text style={styles.emptyTitle}>No captures yet</Text>
                 <Text style={styles.emptySubtitle}>Your thoughts will appear here</Text>
               </View>
-            ) : (
-              todayCaptures.map((item) => {
-                const badge = BADGE[item.classification] ?? BADGE.unclassified
-                const isOptimistic = item.id.startsWith('optimistic-')
-                return (
-                  <View key={item.id} style={styles.captureItem}>
-                    <View style={[styles.badge, { backgroundColor: badge.bg }]}>
-                      <Text style={[
-                        styles.badgeText,
-                        item.classification === 'processing' && { color: '#6B7280' },
-                      ]}>
-                        {badge.label}
-                      </Text>
-                    </View>
-                    <Text style={styles.captureText} numberOfLines={2}>
-                      {item.raw_text ?? '…'}
-                    </Text>
-                    <Text style={styles.captureTime}>
-                      {isOptimistic ? 'Just now' : relativeTime(item.created_at)}
-                    </Text>
+            ) : (() => {
+              const sections: CaptureSection[] = []
+              for (const cap of recentCaptures) {
+                const label = dateLabelFor(cap.created_at)
+                const last = sections[sections.length - 1]
+                if (last && last.label === label) {
+                  last.data.push(cap)
+                } else {
+                  sections.push({ label, data: [cap] })
+                }
+              }
+              return sections.map((section) => (
+                <View key={section.label}>
+                  <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionHeaderText}>{section.label}</Text>
+                    <Text style={styles.sectionHeaderCount}>{section.data.length}</Text>
                   </View>
-                )
-              })
+                  {section.data.map((item) => {
+                    const badge = BADGE[item.classification] ?? BADGE.unclassified
+                    const isOptimistic = item.id.startsWith('optimistic-')
+                    const isCompleted = completedCaptureIds.has(item.id)
+                    return (
+                      <View
+                        key={item.id}
+                        style={[styles.captureItem, isCompleted && { opacity: 0.6 }]}
+                      >
+                        <View style={[styles.badge, { backgroundColor: badge.bg }]}>
+                          <Text style={[
+                            styles.badgeText,
+                            item.classification === 'processing' && { color: '#6B7280' },
+                          ]}>
+                            {badge.label}
+                          </Text>
+                        </View>
+                        <Text style={styles.captureText} numberOfLines={2}>
+                          {item.raw_text ?? '…'}
+                        </Text>
+                        <Text style={styles.captureTime}>
+                          {isOptimistic ? 'Just now' : relativeTime(item.created_at)}
+                        </Text>
+                      </View>
+                    )
+                  })}
+                </View>
+              ))
+            })()}
+
+            {/* Load more */}
+            {hasMore && !loadingCaptures && (
+              <Pressable
+                style={styles.loadMoreButton}
+                onPress={() => session?.user && loadMoreCaptures(session.user.id)}
+                disabled={loadingMore}
+              >
+                {loadingMore ? (
+                  <ActivityIndicator size="small" color={tokens.colors.primary} />
+                ) : (
+                  <Text style={styles.loadMoreText}>Load more</Text>
+                )}
+              </Pressable>
             )}
           </View>
 
@@ -1183,7 +1356,24 @@ const styles = StyleSheet.create({
     color: '#374151',
   },
 
-  // Section header (Today)
+  // Load more button
+  loadMoreButton: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    marginTop: 4,
+    marginBottom: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
+  },
+  loadMoreText: {
+    fontSize: tokens.fontSize.base,
+    fontWeight: tokens.fontWeight.semibold,
+    color: tokens.colors.primary,
+  },
+
+  // Section header
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',

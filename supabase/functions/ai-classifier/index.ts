@@ -4,8 +4,8 @@
  *
  * Purpose:
  * - Receive raw text (typed or voice-transcribed)
- * - Call Gemini (server-side) to classify it into task/shopping/journal/unclassified
- * - Return { classification, confidence, extracted } to the Expo app
+ * - Call Gemini to decompose it into one or more atomic items (task/shopping/journal)
+ * - Return { classification, confidence, items[] } to the Expo app
  *
  * Auth, CORS, retry, and error patterns copied exactly from note-style/index.ts
  */
@@ -17,69 +17,81 @@ type RequestBody = {
   raw_text: string
 }
 
-type ClassificationResult = {
-  classification: 'task' | 'shopping' | 'journal' | 'unclassified'
-  confidence: number
-  extracted: {
-    title?: string
-    due_date_hint?: string
-    item_name?: string
-    quantity?: string
-    content?: string
-    mood?: string
-  }
+type ItemType = 'task' | 'shopping' | 'journal' | 'unclassified'
+
+type ExtractedItem = {
+  type: ItemType
+  title?: string
+  due_date_hint?: string
+  item_name?: string
+  quantity?: string
+  content?: string
+  mood?: string
 }
 
-const CLASSIFIER_SYSTEM_PROMPT = `You are a personal life capture assistant. Your job is to read a short note and classify it into exactly one category, then extract the relevant structured data.
+type ClassificationResult = {
+  classification: ItemType
+  confidence: number
+  items: ExtractedItem[]
+}
 
-Categories (choose the BEST fit — prefer a specific category over "unclassified"):
+const CLASSIFIER_SYSTEM_PROMPT = `You are a personal life capture assistant. Your job is to read a short note, decompose it into one or more atomic items, classify each item, and extract structured data for each.
+
+A single user input may contain MULTIPLE items across different categories. Break them apart.
+
+Categories (choose the BEST fit per item — prefer a specific category over "unclassified"):
 - task: something the user needs to do, remember, or get done
 - shopping: something the user needs to buy, pick up, or get from a store
 - journal: a feeling, thought, reflection, or personal observation
-- unclassified: ONLY use this when the input is truly meaningless, random characters, or completely ambiguous even after considering context
+- unclassified: ONLY use this when an item is truly meaningless or completely ambiguous
 
 Classification tips:
 - If it mentions buying, getting, picking up, or any consumable item → shopping
 - If it implies an action the user should take → task
 - If it expresses a feeling, opinion, or reflection → journal
 - Short inputs (1-3 words) are still classifiable. "buy milk" is shopping. "clean room" is a task. "feeling sad" is journal.
+- When multiple items are listed (e.g. "eggs, milk, and bread"), create a SEPARATE item for each one.
 - When in doubt between categories, pick the most likely one with lower confidence rather than defaulting to unclassified.
 
 Return ONLY valid JSON matching this schema:
 {
-  "classification": "task" | "shopping" | "journal" | "unclassified",
-  "confidence": number between 0 and 1,
-  "extracted": {
-    "title": string,         // for task: short action title
-    "due_date_hint": string, // for task: if user mentioned a time ('Friday', 'tomorrow')
-    "item_name": string,     // for shopping: the item name
-    "quantity": string,      // for shopping: quantity if mentioned
-    "content": string,       // for journal: the full entry text
-    "mood": string           // for journal: single mood word if detectable
-  }
+  "classification": string,  // the dominant category (most items, or first item's type if tied)
+  "confidence": number,      // overall confidence between 0 and 1
+  "items": [                 // one entry per atomic item extracted
+    {
+      "type": "task" | "shopping" | "journal" | "unclassified",
+      "title": string,         // for task: short action title
+      "due_date_hint": string, // for task: if user mentioned a time
+      "item_name": string,     // for shopping: the item name
+      "quantity": string,      // for shopping: quantity if mentioned
+      "content": string,       // for journal: the full entry text
+      "mood": string           // for journal: single mood word if detectable
+    }
+  ]
 }
 
 Examples:
+
 Input: "call dentist tomorrow morning"
-Output: { "classification": "task", "confidence": 0.97, "extracted": { "title": "Call dentist", "due_date_hint": "tomorrow morning" } }
+Output: { "classification": "task", "confidence": 0.97, "items": [{ "type": "task", "title": "Call dentist", "due_date_hint": "tomorrow morning" }] }
 
 Input: "buy milk"
-Output: { "classification": "shopping", "confidence": 0.98, "extracted": { "item_name": "milk" } }
+Output: { "classification": "shopping", "confidence": 0.98, "items": [{ "type": "shopping", "item_name": "milk" }] }
 
-Input: "eggs and bread"
-Output: { "classification": "shopping", "confidence": 0.90, "extracted": { "item_name": "eggs and bread" } }
+Input: "eggs, bread, and butter"
+Output: { "classification": "shopping", "confidence": 0.95, "items": [{ "type": "shopping", "item_name": "eggs" }, { "type": "shopping", "item_name": "bread" }, { "type": "shopping", "item_name": "butter" }] }
 
-Input: "need to buy protein powder"
-Output: { "classification": "shopping", "confidence": 0.99, "extracted": { "item_name": "protein powder" } }
+Input: "buy protein powder and call the gym about membership"
+Output: { "classification": "shopping", "confidence": 0.93, "items": [{ "type": "shopping", "item_name": "protein powder" }, { "type": "task", "title": "Call the gym about membership" }] }
 
 Input: "clean the garage"
-Output: { "classification": "task", "confidence": 0.95, "extracted": { "title": "Clean the garage" } }
+Output: { "classification": "task", "confidence": 0.95, "items": [{ "type": "task", "title": "Clean the garage" }] }
 
 Input: "feeling really exhausted after today"
-Output: { "classification": "journal", "confidence": 0.95, "extracted": { "content": "Feeling really exhausted after today", "mood": "exhausted" } }
+Output: { "classification": "journal", "confidence": 0.95, "items": [{ "type": "journal", "content": "Feeling really exhausted after today", "mood": "exhausted" }] }
 
-Input: "had a great day at the park"
-Output: { "classification": "journal", "confidence": 0.92, "extracted": { "content": "Had a great day at the park", "mood": "happy" } }`
+Input: "pick up groceries, also feeling stressed about the deadline"
+Output: { "classification": "shopping", "confidence": 0.88, "items": [{ "type": "shopping", "item_name": "groceries" }, { "type": "journal", "content": "Feeling stressed about the deadline", "mood": "stressed" }] }`
 
 /**
  * Helper: JSON response with CORS.
@@ -98,14 +110,10 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/**
- * Fallback result used when Gemini returns unparseable output.
- * A saved unclassified item is always better than a failed save.
- */
 const FALLBACK_RESULT: ClassificationResult = {
   classification: 'unclassified',
   confidence: 0,
-  extracted: {},
+  items: [{ type: 'unclassified' }],
 }
 
 Deno.serve(async (req) => {
@@ -175,7 +183,7 @@ Deno.serve(async (req) => {
       ],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 256,
+        maxOutputTokens: 512,
         responseMimeType: 'application/json',
       },
     }
@@ -217,16 +225,34 @@ Deno.serve(async (req) => {
     const rawOutput =
       geminiJson?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text ?? '').join('') ?? ''
 
-    // 7) Parse Gemini's JSON response — fall back to unclassified if unparseable
-    // Strip markdown code fences that Gemini adds despite being told not to (e.g. ```json ... ```)
+    // 7) Parse Gemini's JSON response — normalize to items[] format
     let result: ClassificationResult
     try {
       const cleaned = rawOutput.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '')
-      result = JSON.parse(cleaned) as ClassificationResult
+      const parsed = JSON.parse(cleaned)
 
-      // Basic validation: ensure classification is a known value
-      const valid = ['task', 'shopping', 'journal', 'unclassified']
-      if (!valid.includes(result.classification)) {
+      const valid: ItemType[] = ['task', 'shopping', 'journal', 'unclassified']
+
+      // Normalize: if Gemini returned old format (extracted instead of items), convert
+      if (parsed.extracted && !parsed.items) {
+        const type = valid.includes(parsed.classification) ? parsed.classification : 'unclassified'
+        result = {
+          classification: type,
+          confidence: parsed.confidence ?? 0,
+          items: [{ type, ...parsed.extracted }],
+        }
+      } else if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+        // Validate each item's type
+        const items: ExtractedItem[] = parsed.items.map((item: any) => ({
+          ...item,
+          type: valid.includes(item.type) ? item.type : 'unclassified',
+        }))
+        result = {
+          classification: valid.includes(parsed.classification) ? parsed.classification : items[0].type,
+          confidence: parsed.confidence ?? 0,
+          items,
+        }
+      } else {
         result = FALLBACK_RESULT
       }
     } catch {

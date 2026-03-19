@@ -1,0 +1,301 @@
+import { Ionicons } from '@expo/vector-icons'
+import { Stack, useRouter } from 'expo-router'
+import React, { useCallback, useEffect, useState } from 'react'
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native'
+import type { Session } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase'
+import { tokens } from '../constants/tokens'
+
+type JournalEntry = {
+  id: string
+  user_id: string
+  capture_id: string | null
+  content: string
+  mood: string | null
+  created_at: string
+}
+
+const MOOD_COLORS: Record<string, string> = {
+  happy: tokens.colors.success,
+  good: tokens.colors.success,
+  great: tokens.colors.success,
+  excited: tokens.colors.success,
+  grateful: tokens.colors.success,
+  calm: '#6366F1',
+  relaxed: '#6366F1',
+  peaceful: '#6366F1',
+  content: '#6366F1',
+  sad: '#3B82F6',
+  tired: '#3B82F6',
+  exhausted: '#3B82F6',
+  lonely: '#3B82F6',
+  anxious: '#F59E0B',
+  stressed: '#F59E0B',
+  worried: '#F59E0B',
+  nervous: '#F59E0B',
+  angry: tokens.colors.error,
+  frustrated: tokens.colors.error,
+  annoyed: tokens.colors.error,
+  irritated: tokens.colors.error,
+}
+
+function moodColor(mood: string | null): string {
+  if (!mood) return tokens.colors.neutral
+  return MOOD_COLORS[mood.toLowerCase()] ?? tokens.colors.neutral
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
+function startOfToday(): Date {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+function dateLabelFor(iso: string): string {
+  const date = new Date(iso)
+  const today = startOfToday()
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+
+  if (date >= today) return 'Today'
+  if (date >= yesterday) return 'Yesterday'
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+type Section = { label: string; data: JournalEntry[] }
+
+export default function JournalScreen() {
+  const router = useRouter()
+  const [session, setSession] = useState<Session | null>(null)
+  const [entries, setEntries] = useState<JournalEntry[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
+    return () => sub.subscription.unsubscribe()
+  }, [])
+
+  const fetchEntries = useCallback(async (userId: string) => {
+    const { data } = await supabase
+      .from('journal_entries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+    setEntries((data as JournalEntry[]) ?? [])
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    if (!session?.user) return
+    const userId = session.user.id
+    fetchEntries(userId)
+
+    const channel = supabase
+      .channel(`journal:${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'journal_entries', filter: `user_id=eq.${userId}` },
+        () => fetchEntries(userId)
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [session?.user?.id, fetchEntries])
+
+  const sections: Section[] = []
+  for (const entry of entries) {
+    const label = dateLabelFor(entry.created_at)
+    const last = sections[sections.length - 1]
+    if (last && last.label === label) {
+      last.data.push(entry)
+    } else {
+      sections.push({ label, data: [entry] })
+    }
+  }
+
+  if (!session?.user) {
+    return (
+      <View style={s.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={s.emptyWrap}>
+          <Text style={s.emptyTitle}>Sign in to see your journal</Text>
+        </View>
+      </View>
+    )
+  }
+
+  return (
+    <View style={s.container}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={s.header}>
+          <Text style={s.headerTitle}>Journal</Text>
+          {entries.length > 0 && (
+            <Text style={s.headerCount}>{entries.length} entries</Text>
+          )}
+        </View>
+
+        {loading ? (
+          <ActivityIndicator size="large" color={tokens.colors.success} style={{ marginTop: 40 }} />
+        ) : entries.length === 0 ? (
+          <View style={s.emptyWrap}>
+            <Ionicons name="book-outline" size={48} color={tokens.colors.border} />
+            <Text style={s.emptyTitle}>No journal entries</Text>
+            <Text style={s.emptySubtitle}>Share your thoughts to start journaling</Text>
+            <Pressable style={s.emptyButton} onPress={() => router.replace('/')}>
+              <Ionicons name="flash" size={16} color="#fff" />
+              <Text style={s.emptyButtonText}>Go to Capture</Text>
+            </Pressable>
+          </View>
+        ) : (
+          sections.map((section) => (
+            <View key={section.label}>
+              <View style={s.sectionHeader}>
+                <Text style={s.sectionHeaderText}>{section.label}</Text>
+              </View>
+              {section.data.map((entry) => (
+                <Pressable
+                  key={entry.id}
+                  style={s.entryRow}
+                  onPress={() => router.push({ pathname: '/journalEntry', params: { id: entry.id } })}
+                >
+                  <View style={s.entryLeft}>
+                    <Text style={s.entryTime}>{formatTime(entry.created_at)}</Text>
+                    {entry.mood && (
+                      <View style={[s.moodBadge, { backgroundColor: moodColor(entry.mood) }]}>
+                        <Text style={s.moodText}>{entry.mood}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={s.entryContent} numberOfLines={2}>
+                    {entry.content}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color={tokens.colors.textMuted} />
+                </Pressable>
+              ))}
+            </View>
+          ))
+        )}
+      </ScrollView>
+    </View>
+  )
+}
+
+const s = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: tokens.colors.surface,
+  },
+  scrollContent: {
+    paddingBottom: 100,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+  headerTitle: {
+    fontSize: tokens.fontSize.h1,
+    fontWeight: tokens.fontWeight.extrabold,
+    color: tokens.colors.textPrimary,
+  },
+  headerCount: {
+    fontSize: tokens.fontSize.sm,
+    fontWeight: tokens.fontWeight.semibold,
+    color: tokens.colors.textMuted,
+  },
+  sectionHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 6,
+  },
+  sectionHeaderText: {
+    fontSize: tokens.fontSize.base,
+    fontWeight: tokens.fontWeight.extrabold,
+    color: tokens.colors.textPrimary,
+  },
+  entryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: tokens.colors.surface,
+    marginHorizontal: 12,
+    marginBottom: 6,
+    borderRadius: 12,
+    padding: 12,
+    gap: 10,
+    ...tokens.shadow.card,
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
+  },
+  entryLeft: {
+    alignItems: 'center',
+    gap: 4,
+    minWidth: 56,
+  },
+  entryTime: {
+    fontSize: tokens.fontSize.xs,
+    fontWeight: tokens.fontWeight.semibold,
+    color: tokens.colors.textMuted,
+  },
+  moodBadge: {
+    borderRadius: tokens.radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  moodText: {
+    fontSize: 10,
+    fontWeight: tokens.fontWeight.bold,
+    color: '#fff',
+    textTransform: 'capitalize',
+  },
+  entryContent: {
+    flex: 1,
+    fontSize: tokens.fontSize.base,
+    color: tokens.colors.textSecondary,
+    lineHeight: 20,
+  },
+  emptyWrap: {
+    alignItems: 'center',
+    paddingVertical: 60,
+    gap: 8,
+  },
+  emptyTitle: {
+    fontSize: tokens.fontSize.lg,
+    fontWeight: tokens.fontWeight.bold,
+    color: tokens.colors.textTertiary,
+  },
+  emptySubtitle: {
+    fontSize: tokens.fontSize.sm,
+    color: tokens.colors.textMuted,
+  },
+  emptyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: tokens.colors.success,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: tokens.radius.lg,
+    marginTop: 12,
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
+  },
+  emptyButtonText: {
+    color: '#fff',
+    fontWeight: tokens.fontWeight.bold,
+    fontSize: tokens.fontSize.base,
+  },
+})

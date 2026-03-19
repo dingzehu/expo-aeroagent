@@ -63,7 +63,7 @@ function RootLayoutInner() {
 
   // Re-fetch displayName when navigating back from any screen (e.g. profile edit)
   useEffect(() => {
-    if (session?.user && (pathname === '/' || pathname === '/thoughts')) {
+    if (session?.user && TAB_ROUTES.includes(pathname)) {
       fetchDisplayName(session.user.id)
     }
   }, [pathname, session?.user?.id, fetchDisplayName])
@@ -89,13 +89,16 @@ function RootLayoutInner() {
   }, [drawerAnim])
   */
 
-  const showHeader = !!session?.user && (pathname === '/' || pathname === '/thoughts' || pathname === '/notes')
-  const showTabs = !!session?.user && (pathname === '/' || pathname === '/thoughts' || pathname === '/taskManager')
+  const TAB_ROUTES = ['/', '/tasks', '/shopping', '/journal', '/thoughts']
+  const showHeader = !!session?.user && (pathname === '/' || pathname === '/thoughts' || pathname === '/notes' || pathname === '/tasks' || pathname === '/shopping' || pathname === '/journal')
+  const showTabs = !!session?.user && TAB_ROUTES.includes(pathname)
 
   const TAB_ITEMS = [
-    { route: '/',            labelOff: 'flash-outline' as const,            labelOn: 'flash' as const,            label: 'Capture'  },
-    { route: '/thoughts',    labelOff: 'book-outline' as const,             labelOn: 'book' as const,             label: 'Thoughts' },
-    { route: '/taskManager', labelOff: 'checkmark-circle-outline' as const, labelOn: 'checkmark-circle' as const, label: 'Tasks'    },
+    { route: '/tasks',    labelOff: 'checkmark-circle-outline' as const, labelOn: 'checkmark-circle' as const, label: 'Tasks',    size: 22 },
+    { route: '/shopping', labelOff: 'cart-outline' as const,             labelOn: 'cart' as const,             label: 'Shopping', size: 22 },
+    { route: '/',         labelOff: 'flash-outline' as const,            labelOn: 'flash' as const,            label: 'Capture',  size: 26 },
+    { route: '/journal',  labelOff: 'book-outline' as const,             labelOn: 'book' as const,             label: 'Journal',  size: 22 },
+    { route: '/thoughts', labelOff: 'bulb-outline' as const,             labelOn: 'bulb' as const,             label: 'Thoughts', size: 22 },
   ] as const
 
   return (
@@ -104,9 +107,9 @@ function RootLayoutInner() {
         <ProfileHeader
           displayName={displayName}
           email={session!.user.email}
-          showMenu={pathname === '/' || pathname === '/thoughts' || pathname === '/notes'}
+          showMenu={showHeader}
           onMenuPress={(anchor) => setMenuAnchor(anchor)}
-          showBack={pathname === '/thoughts' || pathname === '/notes'}
+          showBack={pathname !== '/'}
           onBackPress={() => router.back()}
           onAvatarPress={() => router.push('/profile')}
         />
@@ -124,9 +127,14 @@ function RootLayoutInner() {
         }}
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="tasks" options={{ headerShown: false }} />
+        <Stack.Screen name="shopping" options={{ headerShown: false }} />
+        <Stack.Screen name="journal" options={{ headerShown: false }} />
+        <Stack.Screen name="journalEntry" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerTitle: 'Login' }} />
         <Stack.Screen name="notes" options={{ headerTitle: 'Studio', headerBackVisible: false }} />
         <Stack.Screen name="thoughts" options={{ headerShown: false }} />
+        <Stack.Screen name="taskManager" options={{ headerShown: false }} />
         <Stack.Screen name="profile" options={{ headerTitle: 'Edit Profile' }} />
       </Stack>
 
@@ -286,7 +294,7 @@ function RootLayoutInner() {
               >
                 <Ionicons
                   name={active ? tab.labelOn : tab.labelOff}
-                  size={22}
+                  size={tab.size}
                   color={active ? tokens.colors.primary : tokens.colors.textMuted}
                 />
                 <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
