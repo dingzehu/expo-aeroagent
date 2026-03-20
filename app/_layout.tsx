@@ -1,3 +1,4 @@
+import { AppDataProvider } from '../context/AppDataContext'
 import Auth, { type AuthMode } from '../components/Auth'
 import ProfileEditForm from '../components/ProfileEditForm'
 import ProfileHeader from '../components/ProfileHeader'
@@ -14,11 +15,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 export default function RootLayout() {
   return (
-    <TabSlideProvider>
-      <AuthModalProvider>
-        <RootLayoutInner />
-      </AuthModalProvider>
-    </TabSlideProvider>
+    <AppDataProvider>
+      <TabSlideProvider>
+        <AuthModalProvider>
+          <RootLayoutInner />
+        </AuthModalProvider>
+      </TabSlideProvider>
+    </AppDataProvider>
   )
 }
 
