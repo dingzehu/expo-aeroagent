@@ -17,6 +17,7 @@ import {
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
+import { TabSlideWrapper } from '../components/TabSlideWrapper'
 
 type Task = {
   id: string
@@ -34,6 +35,29 @@ function formatDate(iso: string | null): string | null {
   if (!iso) return null
   const d = new Date(iso)
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function startOfToday(): Date {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+function startOfTomorrow(): Date {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() + 1)
+  return d
+}
+
+function getDueDateUrgency(dueDate: string | null): { bg: string; text: string } | null {
+  if (!dueDate) return null
+  const due = new Date(dueDate)
+  const today = startOfToday()
+  const tomorrow = startOfTomorrow()
+  if (due < today)    return { bg: '#FEF2F2', text: '#DC2626' }   // overdue — red
+  if (due < tomorrow) return { bg: '#FEF3C7', text: '#92400E' }   // today — amber
+  return { bg: '#EEF2FF', text: '#6366F1' }                       // future — indigo muted
 }
 
 function SwipeableTaskRow({
@@ -124,13 +148,22 @@ function SwipeableTaskRow({
           )}
         </View>
 
-        {!task.completed && (
-          <Pressable style={rowStyles.dueDateArea} onPress={onDueDatePress}>
-            <Text style={[rowStyles.dueDateText, !dueDateLabel && { color: tokens.colors.textMuted }]}>
-              {dueDateLabel ?? 'No date'}
-            </Text>
-          </Pressable>
-        )}
+        {!task.completed && (() => {
+          const urgency = getDueDateUrgency(task.due_date)
+          return (
+            <Pressable
+              style={[rowStyles.dueDateArea, urgency && { backgroundColor: urgency.bg }]}
+              onPress={onDueDatePress}
+            >
+              <Text style={[
+                rowStyles.dueDateText,
+                urgency ? { color: urgency.text } : { color: tokens.colors.textMuted },
+              ]}>
+                {dueDateLabel ?? 'No date'}
+              </Text>
+            </Pressable>
+          )
+        })()}
       </Animated.View>
     </View>
   )
@@ -229,16 +262,19 @@ export default function TasksScreen() {
 
   if (!session?.user) {
     return (
-      <View style={s.container}>
-        <Stack.Screen options={{ headerShown: false }} />
-        <View style={s.emptyWrap}>
-          <Text style={s.emptyTitle}>Sign in to see your tasks</Text>
+      <TabSlideWrapper tabIndex={0}>
+        <View style={s.container}>
+          <Stack.Screen options={{ headerShown: false }} />
+          <View style={s.emptyWrap}>
+            <Text style={s.emptyTitle}>Sign in to see your tasks</Text>
+          </View>
         </View>
-      </View>
+      </TabSlideWrapper>
     )
   }
 
   return (
+    <TabSlideWrapper tabIndex={0}>
     <View style={s.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
@@ -246,7 +282,9 @@ export default function TasksScreen() {
         <View style={s.header}>
           <Text style={s.headerTitle}>Tasks</Text>
           {activeTasks.length > 0 && (
-            <Text style={s.headerCount}>{activeTasks.length} active</Text>
+            <View style={s.countPill}>
+              <Text style={s.countPillText}>{activeTasks.length} active</Text>
+            </View>
           )}
         </View>
 
@@ -309,6 +347,7 @@ export default function TasksScreen() {
         )}
       </ScrollView>
     </View>
+    </TabSlideWrapper>
   )
 }
 
@@ -350,8 +389,8 @@ const rowStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkboxDone: {
-    backgroundColor: tokens.colors.success,
-    borderColor: tokens.colors.success,
+    backgroundColor: tokens.colors.primary,
+    borderColor: tokens.colors.primary,
   },
   content: {
     flex: 1,
@@ -397,7 +436,7 @@ const rowStyles = StyleSheet.create({
 const s = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: tokens.colors.surface,
+    backgroundColor: tokens.colors.bgTasks,
   },
   scrollContent: {
     paddingBottom: 100,
@@ -419,6 +458,17 @@ const s = StyleSheet.create({
     fontSize: tokens.fontSize.sm,
     fontWeight: tokens.fontWeight.semibold,
     color: tokens.colors.textMuted,
+  },
+  countPill: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  countPillText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: '#6366F1',
   },
   completedHeader: {
     flexDirection: 'row',
