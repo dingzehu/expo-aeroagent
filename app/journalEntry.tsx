@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
+import { useAppData } from '../context/AppDataContext'
 
 type JournalEntry = {
   id: string
@@ -148,6 +149,7 @@ const navStyles = StyleSheet.create({
 export default function JournalEntryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
+  const { removeJournalEntry, updateJournalEntryContent } = useAppData()
   const [entry, setEntry] = useState<JournalEntry | null>(null)
   const [captureRawText, setCaptureRawText] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -189,6 +191,7 @@ export default function JournalEntryScreen() {
     setMenuVisible(false)
     const doDelete = async () => {
       await supabase.from('journal_entries').delete().eq('id', id)
+      removeJournalEntry(id)
       router.back()
     }
     if (Platform.OS === 'web') {
@@ -212,6 +215,7 @@ export default function JournalEntryScreen() {
     setSaving(true)
     await supabase.from('journal_entries').update({ content: editContent.trim() }).eq('id', entry.id)
     setEntry(prev => prev ? { ...prev, content: editContent.trim() } : prev)
+    updateJournalEntryContent(entry.id, editContent.trim())
     setSaving(false)
     setEditVisible(false)
   }
