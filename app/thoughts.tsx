@@ -3,6 +3,7 @@ import { PersonaPill } from '@/components/PersonaPill'
 import { PERSONAS, PERSONA_HELP, useNoteEditor } from '@/lib/noteHelpers'
 import { supabase } from '@/lib/supabase'
 import { tokens } from '@/constants/tokens'
+import { TabSlideWrapper } from '@/components/TabSlideWrapper'
 import { Ionicons, MaterialIcons } from '@expo/vector-icons'
 import type { Session } from '@supabase/supabase-js'
 import * as Haptics from 'expo-haptics'
@@ -40,7 +41,7 @@ const NOTEBOOK_COLORS = [
 // ─── Editor-specific styles (for the inline editor panel) ─────────────────────
 
 const editorStyles = StyleSheet.create({
-    screen: { flex: 1, backgroundColor: '#fff', padding: 16 },
+    screen: { flex: 1, backgroundColor: tokens.colors.bgThoughts, padding: 16 },
     backRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -609,33 +610,12 @@ export default function ThoughtsScreen() {
     )
 
     return (
+        <TabSlideWrapper tabIndex={4}>
         <View style={[styles.screen, isWeb && { flexDirection: 'row' }]}>
             <Stack.Screen options={{ headerShown: false }} />
 
             {isWeb && session?.user && !loading && (
                 <View style={drawerStyles.webSidebar}>
-                    <LinearGradient colors={['#a855f7', '#6366f1']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={drawerStyles.webUserProfile}>
-                        <View style={drawerStyles.webBackRow}>
-                            <Pressable style={drawerStyles.webBackBtn}>
-                                <Ionicons name="arrow-back" size={20} color="#fff" />
-                                <Text style={drawerStyles.webBackText}>Back</Text>
-                            </Pressable>
-                            <Pressable>
-                                <Ionicons name="ellipsis-horizontal" size={20} color="#fff" />
-                            </Pressable>
-                        </View>
-                        <View style={drawerStyles.webUserRow}>
-                            <View style={drawerStyles.webAvatar}>
-                                <Text style={drawerStyles.webAvatarText}>{profileName ? profileName.substring(0, 2).toUpperCase() : 'DI'}</Text>
-                            </View>
-                            <View style={drawerStyles.webUserInfo}>
-                                <Text style={drawerStyles.webAppTitle}>Aero Agent</Text>
-                                <Text style={drawerStyles.webUserName}>{profileName || 'Ding-Ze Hu'}</Text>
-                                <Text style={drawerStyles.webUserEmail} numberOfLines={1}>{session?.user?.email}</Text>
-                            </View>
-                        </View>
-                    </LinearGradient>
-
                     <View style={drawerStyles.webManageRow}>
                         <Text style={drawerStyles.title}>Manage</Text>
                     </View>
@@ -1119,13 +1099,14 @@ export default function ThoughtsScreen() {
                 </View>
             </Modal>
         </View>
+        </TabSlideWrapper>
     )
 }
 
 // ─── List / toolbar styles ────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-    screen: { flex: 1, backgroundColor: '#fff' },
+    screen: { flex: 1, backgroundColor: tokens.colors.bgThoughts },
     toolbar: {
         flexDirection: 'row',
         justifyContent: 'space-between',
