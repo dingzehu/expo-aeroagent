@@ -28,6 +28,7 @@ import {
 } from 'expo-audio'
 import type { Session } from '@supabase/supabase-js'
 import { useAuthModal } from '../context/AuthModalContext'
+import { TabSlideWrapper } from '../components/TabSlideWrapper'
 import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
 
@@ -118,6 +119,24 @@ function startOfToday(): Date {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
   return d
+}
+
+function getCaptureBadgeTypes(capture: Capture): Classification[] {
+  // Processing captures (optimistic, pre-classification): extracted_data is null,
+  // classification is 'processing'. Returns ['processing'] → renders grey "..." badge.
+  const items = capture.extracted_data?.items as { type: string }[] | null
+  if (items && items.length > 0) {
+    const seen = new Set<string>()
+    const types: Classification[] = []
+    for (const item of items) {
+      if (item.type && !seen.has(item.type) && item.type !== 'processing') {
+        seen.add(item.type)
+        types.push(item.type as Classification)
+      }
+    }
+    if (types.length > 0) return types
+  }
+  return [capture.classification]  // fallback: single badge (processing + older captures)
 }
 
 function sevenDaysAgo(): Date {
@@ -806,21 +825,24 @@ export default function Index() {
   // ─── Render ────────────────────────────────────────────────────────────────
   if (!session?.user) {
     return (
-      <View style={styles.container}>
-        <Stack.Screen options={{ headerShown: false }} />
-        <View style={styles.lockScreen}>
-          <Ionicons name="lock-closed-outline" size={48} color="#E5E7EB" />
-          <Text style={styles.lockTitle}>Sign in to start capturing</Text>
-          <Text style={styles.lockSubtitle}>Your thoughts, organised by AI</Text>
-          <Pressable style={styles.signInButton} onPress={openAuthModal}>
-            <Text style={styles.signInButtonText}>Sign In</Text>
-          </Pressable>
+      <TabSlideWrapper tabIndex={2}>
+        <View style={styles.container}>
+          <Stack.Screen options={{ headerShown: false }} />
+          <View style={styles.lockScreen}>
+            <Ionicons name="lock-closed-outline" size={48} color="#E5E7EB" />
+            <Text style={styles.lockTitle}>Sign in to start capturing</Text>
+            <Text style={styles.lockSubtitle}>Your thoughts, organised by AI</Text>
+            <Pressable style={styles.signInButton} onPress={openAuthModal}>
+              <Text style={styles.signInButtonText}>Sign In</Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
+      </TabSlideWrapper>
     )
   }
 
   return (
+    <TabSlideWrapper tabIndex={2}>
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
 
@@ -835,21 +857,17 @@ export default function Index() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* ── Stats bar ─────────────────────────────────────────────── */}
-          {weekCaptureCount === 0 && !lastCaptureAt ? (
-            <View style={styles.statsBar}>
-              <Text style={[styles.statsText, { textAlign: 'center', width: '100%' }]}>
-                Start your first capture ↓
+          {/* ── Screen header with inline stats ─────────────────────── */}
+          <View style={styles.screenHeader}>
+            <Text style={styles.screenTitle}>Capture</Text>
+            {(weekCaptureCount > 0 || lastCaptureAt) && (
+              <Text style={styles.screenStats}>
+                {weekCaptureCount > 0 ? `${weekCaptureCount} this week` : ''}
+                {weekCaptureCount > 0 && lastCaptureAt ? ' · ' : ''}
+                {lastCaptureAt ? relativeTime(lastCaptureAt) : ''}
               </Text>
-            </View>
-          ) : (
-            <View style={[styles.statsBar, { flexDirection: 'row', justifyContent: 'space-between' }]}>
-              <Text style={styles.statsText}>{weekCaptureCount} captures this week</Text>
-              <Text style={styles.statsText}>
-                {lastCaptureAt ? `Last capture: ${relativeTime(lastCaptureAt)}` : 'No captures yet'}
-              </Text>
-            </View>
-          )}
+            )}
+          </View>
 
           {/* ── Text input ────────────────────────────────────────────── */}
           <View style={[styles.inputWrapper, styles.inputWrapperFocused]}>
@@ -1012,7 +1030,7 @@ export default function Index() {
                     <Text style={styles.sectionHeaderCount}>{section.data.length}</Text>
                   </View>
                   {section.data.map((item) => {
-                    const badge = BADGE[item.classification] ?? BADGE.unclassified
+                    const badgeTypes = getCaptureBadgeTypes(item)
                     const isOptimistic = item.id.startsWith('optimistic-')
                     const isCompleted = completedCaptureIds.has(item.id)
                     return (
@@ -1020,13 +1038,20 @@ export default function Index() {
                         key={item.id}
                         style={[styles.captureItem, isCompleted && { opacity: 0.6 }]}
                       >
-                        <View style={[styles.badge, { backgroundColor: badge.bg }]}>
-                          <Text style={[
-                            styles.badgeText,
-                            item.classification === 'processing' && { color: '#6B7280' },
-                          ]}>
-                            {badge.label}
-                          </Text>
+                        <View style={styles.badgeColumn}>
+                          {badgeTypes.map(type => {
+                            const badge = BADGE[type] ?? BADGE.unclassified
+                            return (
+                              <View key={type} style={[styles.badge, { backgroundColor: badge.bg }]}>
+                                <Text style={[
+                                  styles.badgeText,
+                                  type === 'processing' && { color: '#6B7280' },
+                                ]}>
+                                  {badge.label}
+                                </Text>
+                              </View>
+                            )
+                          })}
                         </View>
                         <Text style={styles.captureText} numberOfLines={2}>
                           {item.raw_text ?? '…'}
@@ -1060,6 +1085,7 @@ export default function Index() {
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
+    </TabSlideWrapper>
   )
 }
 
@@ -1067,7 +1093,7 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: tokens.colors.bgTasks,
   },
 
   // Lock screen
@@ -1109,15 +1135,24 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
   },
 
-  // Stats bar
-  statsBar: {
+  // Screen header
+  screenHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingTop: 12,
+    paddingBottom: 6,
   },
-  statsText: {
+  screenTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: tokens.colors.textPrimary,
+  },
+  screenStats: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#6B7280',
+    color: tokens.colors.textMuted,
   },
 
   // Text input
@@ -1304,6 +1339,11 @@ const styles = StyleSheet.create({
       android: { elevation: 1 },
       web: { boxShadow: '0 1px 4px rgba(0,0,0,0.04)' } as any,
     }),
+  },
+  badgeColumn: {
+    flexDirection: 'column',
+    gap: 3,
+    alignSelf: 'flex-start',
   },
   badge: {
     borderRadius: 6,
