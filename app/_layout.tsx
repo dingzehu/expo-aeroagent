@@ -109,7 +109,7 @@ function RootLayoutInner() {
           email={session!.user.email}
           showMenu={showHeader}
           onMenuPress={(anchor) => setMenuAnchor(anchor)}
-          showBack={pathname !== '/'}
+          showBack={!TAB_ROUTES.includes(pathname)}
           onBackPress={() => router.back()}
           onAvatarPress={() => router.push('/profile')}
         />
@@ -134,8 +134,8 @@ function RootLayoutInner() {
         <Stack.Screen name="login" options={{ headerTitle: 'Login' }} />
         <Stack.Screen name="notes" options={{ headerTitle: 'Studio', headerBackVisible: false }} />
         <Stack.Screen name="thoughts" options={{ headerShown: false }} />
-        <Stack.Screen name="taskManager" options={{ headerShown: false }} />
-        <Stack.Screen name="profile" options={{ headerTitle: 'Edit Profile' }} />
+        <Stack.Screen name="taskManager" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="profile" options={{ headerTitle: 'Edit Profile', animation: 'slide_from_bottom' }} />
       </Stack>
 
       {/* Account drawer — kept but disabled in favour of popover
