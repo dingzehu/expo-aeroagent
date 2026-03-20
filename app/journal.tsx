@@ -13,6 +13,7 @@ import {
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
+import { TabSlideWrapper } from '../components/TabSlideWrapper'
 
 type JournalEntry = {
   id: string
@@ -127,23 +128,28 @@ export default function JournalScreen() {
 
   if (!session?.user) {
     return (
-      <View style={s.container}>
-        <Stack.Screen options={{ headerShown: false }} />
-        <View style={s.emptyWrap}>
-          <Text style={s.emptyTitle}>Sign in to see your journal</Text>
+      <TabSlideWrapper tabIndex={3}>
+        <View style={s.container}>
+          <Stack.Screen options={{ headerShown: false }} />
+          <View style={s.emptyWrap}>
+            <Text style={s.emptyTitle}>Sign in to see your journal</Text>
+          </View>
         </View>
-      </View>
+      </TabSlideWrapper>
     )
   }
 
   return (
+    <TabSlideWrapper tabIndex={3}>
     <View style={s.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={s.header}>
           <Text style={s.headerTitle}>Journal</Text>
           {entries.length > 0 && (
-            <Text style={s.headerCount}>{entries.length} entries</Text>
+            <View style={s.countPill}>
+              <Text style={s.countPillText}>{entries.length} entries</Text>
+            </View>
           )}
         </View>
 
@@ -190,13 +196,14 @@ export default function JournalScreen() {
         )}
       </ScrollView>
     </View>
+    </TabSlideWrapper>
   )
 }
 
 const s = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: tokens.colors.surface,
+    backgroundColor: tokens.colors.bgJournal,
   },
   scrollContent: {
     paddingBottom: 100,
@@ -218,6 +225,17 @@ const s = StyleSheet.create({
     fontSize: tokens.fontSize.sm,
     fontWeight: tokens.fontWeight.semibold,
     color: tokens.colors.textMuted,
+  },
+  countPill: {
+    backgroundColor: '#DCFCE7',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  countPillText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: '#15803D',
   },
   sectionHeader: {
     paddingHorizontal: 16,
