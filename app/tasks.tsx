@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, useRouter } from 'expo-router'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   PanResponder,
   Platform,
@@ -14,22 +13,9 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import type { Session } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
 import { TabSlideWrapper } from '../components/TabSlideWrapper'
-
-type Task = {
-  id: string
-  user_id: string
-  capture_id: string | null
-  title: string
-  completed: boolean
-  completed_at: string | null
-  due_date: string | null
-  created_at: string
-  updated_at: string
-}
+import { useAppData, type Task } from '../context/AppDataContext'
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null
@@ -171,96 +157,21 @@ function SwipeableTaskRow({
 
 export default function TasksScreen() {
   const router = useRouter()
-  const [session, setSession] = useState<Session | null>(null)
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [loading, setLoading] = useState(true)
+  const {
+    isSignedIn,
+    tasks,
+    tasksLoading: loading,
+    toggleTask,
+    deleteTask,
+    updateTaskTitle,
+    toggleDueDate,
+  } = useAppData()
   const [showCompleted, setShowCompleted] = useState(false)
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
-    return () => sub.subscription.unsubscribe()
-  }, [])
-
-  const fetchTasks = useCallback(async (userId: string) => {
-    const { data } = await supabase
-      .from('tasks')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-    setTasks((data as Task[]) ?? [])
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    if (!session?.user) return
-    const userId = session.user.id
-    fetchTasks(userId)
-
-    const channel = supabase
-      .channel(`tasks:${userId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks', filter: `user_id=eq.${userId}` },
-        () => fetchTasks(userId)
-      )
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [session?.user?.id, fetchTasks])
-
-  const toggleTask = useCallback(async (task: Task) => {
-    const newCompleted = !task.completed
-    setTasks(prev => prev.map(t =>
-      t.id === task.id
-        ? { ...t, completed: newCompleted, completed_at: newCompleted ? new Date().toISOString() : null }
-        : t
-    ))
-    await supabase.from('tasks').update({
-      completed: newCompleted,
-      completed_at: newCompleted ? new Date().toISOString() : null,
-    }).eq('id', task.id)
-  }, [])
-
-  const deleteTask = useCallback(async (task: Task) => {
-    const doDelete = async () => {
-      setTasks(prev => prev.filter(t => t.id !== task.id))
-      await supabase.from('tasks').delete().eq('id', task.id)
-    }
-
-    if (Platform.OS === 'web') {
-      if (confirm('Delete this task?')) doDelete()
-    } else {
-      Alert.alert('Delete Task', 'Are you sure?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: doDelete },
-      ])
-    }
-  }, [])
-
-  const updateTitle = useCallback(async (taskId: string, newTitle: string) => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, title: newTitle } : t))
-    await supabase.from('tasks').update({ title: newTitle }).eq('id', taskId)
-  }, [])
-
-  const toggleDueDate = useCallback(async (task: Task) => {
-    if (task.due_date) {
-      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, due_date: null } : t))
-      await supabase.from('tasks').update({ due_date: null }).eq('id', task.id)
-    } else {
-      const tomorrow = new Date()
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      tomorrow.setHours(9, 0, 0, 0)
-      const iso = tomorrow.toISOString()
-      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, due_date: iso } : t))
-      await supabase.from('tasks').update({ due_date: iso }).eq('id', task.id)
-    }
-  }, [])
 
   const activeTasks = tasks.filter(t => !t.completed)
   const completedTasks = tasks.filter(t => t.completed)
 
-  if (!session?.user) {
+  if (!isSignedIn) {
     return (
       <TabSlideWrapper tabIndex={0}>
         <View style={s.container}>
@@ -309,7 +220,7 @@ export default function TasksScreen() {
                 task={task}
                 onToggle={() => toggleTask(task)}
                 onDelete={() => deleteTask(task)}
-                onTitleSave={(t) => updateTitle(task.id, t)}
+                onTitleSave={(t) => updateTaskTitle(task.id, t)}
                 onDueDatePress={() => toggleDueDate(task)}
               />
             ))}
@@ -337,7 +248,7 @@ export default function TasksScreen() {
                     task={task}
                     onToggle={() => toggleTask(task)}
                     onDelete={() => deleteTask(task)}
-                    onTitleSave={(t) => updateTitle(task.id, t)}
+                    onTitleSave={(t) => updateTaskTitle(task.id, t)}
                     onDueDatePress={() => toggleDueDate(task)}
                   />
                 ))}
