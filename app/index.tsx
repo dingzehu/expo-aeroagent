@@ -29,6 +29,7 @@ import {
 import type { Session } from '@supabase/supabase-js'
 import { useAuthModal } from '../context/AuthModalContext'
 import { TabSlideWrapper } from '../components/TabSlideWrapper'
+import { useAppData } from '../context/AppDataContext'
 import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
 
@@ -176,6 +177,7 @@ function triggerHaptic(type: 'light' | 'medium' | 'success') {
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function Index() {
   const { openAuthModal } = useAuthModal()
+  const { invalidateTasks, invalidateShopping, invalidateJournal } = useAppData()
 
   // Session
   const [session, setSession] = useState<Session | null>(null)
@@ -537,6 +539,14 @@ export default function Index() {
     }, 2500)
   }, [openShelf, closeShelf, chipScale, chipOpacity])
 
+  // ─── Invalidate context lists after successful capture ────────────────────
+  const invalidateForItems = useCallback((items: ExtractedItem[]) => {
+    const types = new Set(items.map(i => i.type))
+    if (types.has('task')) invalidateTasks()
+    if (types.has('shopping')) invalidateShopping()
+    if (types.has('journal')) invalidateJournal()
+  }, [invalidateTasks, invalidateShopping, invalidateJournal])
+
   // ─── Call Edge Function helper ─────────────────────────────────────────────
   const callEdgeFunction = useCallback(async (name: string, payload: object) => {
     const { data: { session: freshSession } } = await supabase.auth.getSession()
@@ -652,6 +662,7 @@ export default function Index() {
       const chip = buildSuccessChip(items)
       setSuccessChipOverride(chip)
       showSuccess(classification)
+      invalidateForItems(items)
     } catch (e) {
       console.error('submitText error', e)
       const fallbackItems: ExtractedItem[] = [{ type: 'unclassified' }]
@@ -662,7 +673,7 @@ export default function Index() {
       setSuccessChipOverride(null)
       showSuccess('unclassified')
     }
-  }, [session, callEdgeFunction, saveCapture, showSuccess, openShelf])
+  }, [session, callEdgeFunction, saveCapture, showSuccess, openShelf, invalidateForItems])
 
   // ─── Voice capture flow ────────────────────────────────────────────────────
   const stopAndSubmitRecording = useCallback(async () => {
@@ -736,6 +747,7 @@ export default function Index() {
       const chip = buildSuccessChip(items)
       setSuccessChipOverride(chip)
       showSuccess(classification)
+      invalidateForItems(items)
     } catch (e) {
       console.error('voice capture error', e)
       const fallbackText = transcript ?? '[Voice capture — upload failed]'
@@ -747,7 +759,7 @@ export default function Index() {
       setSuccessChipOverride(null)
       showSuccess('unclassified')
     }
-  }, [session, audioRecorder, stopPulse, stopTimer, callEdgeFunction, saveCapture, showSuccess, openShelf])
+  }, [session, audioRecorder, stopPulse, stopTimer, callEdgeFunction, saveCapture, showSuccess, openShelf, invalidateForItems])
 
   // ─── PanResponder ──────────────────────────────────────────────────────────
   // Sync callback refs on every render so PanResponder always calls the latest version
