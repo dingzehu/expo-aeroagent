@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, useRouter } from 'expo-router'
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import {
   ActivityIndicator,
   Platform,
@@ -10,19 +10,9 @@ import {
   Text,
   View,
 } from 'react-native'
-import type { Session } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
 import { TabSlideWrapper } from '../components/TabSlideWrapper'
-
-type JournalEntry = {
-  id: string
-  user_id: string
-  capture_id: string | null
-  content: string
-  mood: string | null
-  created_at: string
-}
+import { useAppData, type JournalEntry } from '../context/AppDataContext'
 
 const MOOD_COLORS: Record<string, string> = {
   happy: tokens.colors.success,
@@ -78,42 +68,11 @@ type Section = { label: string; data: JournalEntry[] }
 
 export default function JournalScreen() {
   const router = useRouter()
-  const [session, setSession] = useState<Session | null>(null)
-  const [entries, setEntries] = useState<JournalEntry[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
-    return () => sub.subscription.unsubscribe()
-  }, [])
-
-  const fetchEntries = useCallback(async (userId: string) => {
-    const { data } = await supabase
-      .from('journal_entries')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-    setEntries((data as JournalEntry[]) ?? [])
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    if (!session?.user) return
-    const userId = session.user.id
-    fetchEntries(userId)
-
-    const channel = supabase
-      .channel(`journal:${userId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'journal_entries', filter: `user_id=eq.${userId}` },
-        () => fetchEntries(userId)
-      )
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [session?.user?.id, fetchEntries])
+  const {
+    isSignedIn,
+    journalEntries: entries,
+    journalLoading: loading,
+  } = useAppData()
 
   const sections: Section[] = []
   for (const entry of entries) {
@@ -126,7 +85,7 @@ export default function JournalScreen() {
     }
   }
 
-  if (!session?.user) {
+  if (!isSignedIn) {
     return (
       <TabSlideWrapper tabIndex={3}>
         <View style={s.container}>
