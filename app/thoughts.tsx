@@ -200,8 +200,6 @@ export default function ThoughtsScreen() {
     const [colorModalTarget, setColorModalTarget] = useState<Notebook | null>(null)
     const [selectedColor, setSelectedColor] = useState<string | null>(null)
 
-    // User Profile
-    const [profileName, setProfileName] = useState<string>('')
     const isWeb = Platform.OS === 'web'
 
     // Popover
@@ -237,9 +235,6 @@ export default function ThoughtsScreen() {
     const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
         const { data: { session: s } } = await supabase.auth.getSession()
         if (!s?.user) { setLoading(false); return }
-
-        const { data: profileData } = await supabase.from('profiles').select('display_name').eq('id', s.user.id).single()
-        if (profileData?.display_name) setProfileName(profileData.display_name)
 
         if (!opts?.silent) setLoading(true)
 
@@ -616,10 +611,6 @@ export default function ThoughtsScreen() {
 
             {isWeb && session?.user && !loading && (
                 <View style={drawerStyles.webSidebar}>
-                    <View style={drawerStyles.webManageRow}>
-                        <Text style={drawerStyles.title}>Manage</Text>
-                    </View>
-
                     {SidebarMarkup}
                 </View>
             )}
@@ -1433,29 +1424,6 @@ const drawerStyles = StyleSheet.create({
         borderRightColor: '#f3f4f6',
         zIndex: 10,
     },
-    webUserProfile: { paddingVertical: 24 },
-    webBackRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: 20,
-        marginBottom: 20,
-    },
-    webBackBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    webBackText: { color: '#fff', fontSize: 16 },
-    webUserRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, gap: 16 },
-    webAvatar: {
-        width: 64, height: 64, borderRadius: 32,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    webAvatarText: { color: '#fff', fontSize: 24, fontWeight: '700' },
-    webUserInfo: { flex: 1 },
-    webAppTitle: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
-    webUserName: { color: '#fff', fontSize: 22, fontWeight: '700', marginTop: 2, marginBottom: 2 },
-    webUserEmail: { color: 'rgba(255,255,255,0.7)', fontSize: 14, maxWidth: 170 },
-    webManageRow: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 16 },
     webToolbarActions: { flexDirection: 'row', gap: 8 },
     title: { fontSize: 18, fontWeight: '800', color: '#111' },
     closeBtn: { paddingHorizontal: 6, paddingVertical: 6, borderRadius: 999, backgroundColor: '#F3F4F6' },
