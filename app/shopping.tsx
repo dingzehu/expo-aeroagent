@@ -17,6 +17,7 @@ import {
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
+import { TabSlideWrapper } from '../components/TabSlideWrapper'
 
 type ShoppingItem = {
   id: string
@@ -202,23 +203,28 @@ export default function ShoppingScreen() {
 
   if (!session?.user) {
     return (
-      <View style={s.container}>
-        <Stack.Screen options={{ headerShown: false }} />
-        <View style={s.emptyWrap}>
-          <Text style={s.emptyTitle}>Sign in to see your shopping list</Text>
+      <TabSlideWrapper tabIndex={1}>
+        <View style={s.container}>
+          <Stack.Screen options={{ headerShown: false }} />
+          <View style={s.emptyWrap}>
+            <Text style={s.emptyTitle}>Sign in to see your shopping list</Text>
+          </View>
         </View>
-      </View>
+      </TabSlideWrapper>
     )
   }
 
   return (
+    <TabSlideWrapper tabIndex={1}>
     <View style={s.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={s.header}>
           <Text style={s.headerTitle}>Shopping</Text>
           {activeItems.length > 0 && (
-            <Text style={s.headerCount}>{activeItems.length} items</Text>
+            <View style={s.countPill}>
+              <Text style={s.countPillText}>{activeItems.length} items</Text>
+            </View>
           )}
         </View>
 
@@ -277,6 +283,7 @@ export default function ShoppingScreen() {
         )}
       </ScrollView>
     </View>
+    </TabSlideWrapper>
   )
 }
 
@@ -313,7 +320,7 @@ const rowStyles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: tokens.colors.border,
+    borderColor: '#D97706',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -336,14 +343,14 @@ const rowStyles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
-    backgroundColor: tokens.colors.surfaceMuted,
+    backgroundColor: '#FEF3C7',
     minWidth: 36,
     alignItems: 'center',
   },
   qtyText: {
     fontSize: tokens.fontSize.xs,
     fontWeight: tokens.fontWeight.bold,
-    color: tokens.colors.textTertiary,
+    color: '#92400E',
   },
   qtyInput: {
     fontSize: tokens.fontSize.xs,
@@ -363,7 +370,7 @@ const rowStyles = StyleSheet.create({
 const s = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: tokens.colors.surface,
+    backgroundColor: tokens.colors.bgShopping,
   },
   scrollContent: {
     paddingBottom: 100,
@@ -385,6 +392,17 @@ const s = StyleSheet.create({
     fontSize: tokens.fontSize.sm,
     fontWeight: tokens.fontWeight.semibold,
     color: tokens.colors.textMuted,
+  },
+  countPill: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  countPillText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: '#92400E',
   },
   boughtHeader: {
     flexDirection: 'row',
