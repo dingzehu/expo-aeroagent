@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons'
+import { LinearGradient } from 'expo-linear-gradient'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useEffect, useState } from 'react'
 import {
@@ -12,6 +13,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -70,79 +72,156 @@ function formatDateTime(iso: string): string {
   }) + ' at ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 }
 
-function formatSlimTitle(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
-  // e.g. "19 Mar" on most locales
-}
-
-function SlimNavBar({
-  title,
+function EntryHeader({
+  entry,
   onBack,
   onMenuPress,
 }: {
-  title: string
+  entry: JournalEntry
   onBack: () => void
   onMenuPress: () => void
 }) {
   const insets = useSafeAreaInsets()
+  const { height: screenHeight } = useWindowDimensions()
   return (
-    <View style={[navStyles.wrapper, { paddingTop: insets.top }]}>
-      <View style={navStyles.bar}>
-        <Pressable style={navStyles.backBtn} onPress={onBack}
-          {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}>
-          <Ionicons name="chevron-back" size={22} color={tokens.colors.textPrimary} />
-          <Text style={navStyles.backLabel}>Journal</Text>
-        </Pressable>
+    <View style={[hStyles.container, { height: screenHeight * 0.15, paddingTop: insets.top }]}>
+      <LinearGradient
+        colors={[tokens.colors.primaryDark, tokens.colors.primaryLight]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFillObject}
+      />
+      <View style={hStyles.circle1} pointerEvents="none" />
+      <View style={hStyles.circle2} pointerEvents="none" />
 
-        <Text style={navStyles.title} numberOfLines={1}>{title}</Text>
+      <Pressable
+        style={[hStyles.backBtn, { top: insets.top + 8 }]}
+        onPress={onBack}
+        {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+      >
+        <Ionicons name="chevron-back" size={20} color="#fff" />
+        <Text style={hStyles.backLabel}>Journal</Text>
+      </Pressable>
 
-        <Pressable style={navStyles.menuBtn} onPress={onMenuPress}
-          {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}>
-          <Ionicons name="ellipsis-horizontal" size={20} color={tokens.colors.textMuted} />
-        </Pressable>
+      <Pressable
+        style={[hStyles.menuBtn, { top: insets.top + 10 }]}
+        onPress={onMenuPress}
+        {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+      >
+        <Ionicons name="ellipsis-horizontal" size={22} color="rgba(255,255,255,0.8)" />
+      </Pressable>
+
+      <View style={hStyles.content}>
+        <View style={hStyles.iconWrap}>
+          <Ionicons name="book" size={26} color="#fff" />
+        </View>
+        <View style={hStyles.info}>
+          <Text style={hStyles.brandLabel}>Journal</Text>
+          <Text style={hStyles.dateText} numberOfLines={1}>{formatDateTime(entry.created_at)}</Text>
+          {entry.mood && (
+            <View style={[hStyles.moodBadge, { backgroundColor: moodColor(entry.mood) }]}>
+              <Text style={hStyles.moodText}>{entry.mood}</Text>
+            </View>
+          )}
+        </View>
       </View>
     </View>
   )
 }
 
-const navStyles = StyleSheet.create({
-  wrapper: {
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: tokens.colors.border,
+const hStyles = StyleSheet.create({
+  container: {
+    width: '100%',
+    backgroundColor: tokens.colors.primaryDark,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    position: 'relative',
   },
-  bar: {
-    height: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 4,
+  circle1: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    top: -50,
+    right: -50,
+  },
+  circle2: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    bottom: -30,
+    left: '20%',
   },
   backBtn: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 20,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    minWidth: 80,
   },
   backLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: tokens.colors.textPrimary,
-  },
-  title: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 15,
-    fontWeight: '600',
-    color: tokens.colors.textMuted,
+    color: '#fff',
+    fontSize: tokens.fontSize.lg,
+    fontWeight: tokens.fontWeight.semibold,
   },
   menuBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minWidth: 80,
+    position: 'absolute',
+    right: 16,
+    zIndex: 20,
+    padding: 4,
+  },
+  content: {
+    flexDirection: 'row',
     alignItems: 'flex-end',
+    zIndex: 10,
+    gap: 14,
+  },
+  iconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  info: {
+    flex: 1,
+    gap: 3,
+  },
+  brandLabel: {
+    fontSize: tokens.fontSize.xs,
+    color: 'rgba(255,255,255,0.6)',
+    fontWeight: tokens.fontWeight.semibold,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 1,
+  },
+  dateText: {
+    fontSize: tokens.fontSize.base,
+    color: '#fff',
+    fontWeight: tokens.fontWeight.bold,
+    letterSpacing: -0.2,
+  },
+  moodBadge: {
+    alignSelf: 'flex-start',
+    borderRadius: tokens.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    marginTop: 2,
+  },
+  moodText: {
+    fontSize: tokens.fontSize.xs,
+    fontWeight: tokens.fontWeight.bold,
+    color: '#fff',
+    textTransform: 'capitalize',
   },
 })
 
@@ -249,23 +328,13 @@ export default function JournalEntryScreen() {
     <View style={s.container}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <SlimNavBar
-        title={formatSlimTitle(entry.created_at)}
+      <EntryHeader
+        entry={entry}
         onBack={() => router.back()}
         onMenuPress={() => setMenuVisible(true)}
       />
 
       <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Meta */}
-        <View style={s.metaRow}>
-          <Text style={s.dateText}>{formatDateTime(entry.created_at)}</Text>
-          {entry.mood && (
-            <View style={[s.moodBadge, { backgroundColor: moodColor(entry.mood) }]}>
-              <Text style={s.moodText}>{entry.mood}</Text>
-            </View>
-          )}
-        </View>
-
         {/* Content */}
         <View style={s.contentCard}>
           <Text style={s.contentText}>{entry.content}</Text>
@@ -336,32 +405,8 @@ const s = StyleSheet.create({
     backgroundColor: tokens.colors.bgJournal,
   },
   scrollContent: {
-    paddingBottom: 80,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 8,
-    flexWrap: 'wrap',
-  },
-  dateText: {
-    fontSize: tokens.fontSize.sm,
-    fontWeight: tokens.fontWeight.semibold,
-    color: tokens.colors.textTertiary,
-  },
-  moodBadge: {
-    borderRadius: tokens.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-  },
-  moodText: {
-    fontSize: tokens.fontSize.xs,
-    fontWeight: tokens.fontWeight.bold,
-    color: '#fff',
-    textTransform: 'capitalize',
+    paddingBottom: 80,
   },
   contentCard: {
     marginHorizontal: 12,
