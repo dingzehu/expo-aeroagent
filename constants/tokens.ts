@@ -29,6 +29,13 @@ export const tokens = {
     surfaceMuted: '#F3F4F6',
     border:       '#E5E7EB',
     borderStrong: '#ddd',
+
+    // Per-screen tinted backgrounds
+    violet:       '#8B5CF6',  // Thoughts accent
+    bgTasks:      '#F8F9FF',  // Tasks + Capture (indigo tint)
+    bgShopping:   '#FFFBF5',  // Shopping (amber tint)
+    bgJournal:    '#F0FDF9',  // Journal + JournalEntry (mint tint)
+    bgThoughts:   '#F5F3FF',  // Thoughts (violet tint)
   },
 
   fontSize: {
@@ -88,5 +95,13 @@ export const tokens = {
       web:     { boxShadow: '0 4px 12px rgba(0,0,0,0.10)' } as object,
       default: {},
     }),
+  },
+  animation: {
+    tabScale:           1.28,
+    tabSpringFriction:  8,
+    tabSpringTension:   80,
+    tabSlideDuration:   280,   // ms — tab screen slide-in
+    labelFadeDuration:  200,   // ms — label fade-in
+    labelFadeDelay:     50,    // ms — label fade-in delay
   },
 } as const
