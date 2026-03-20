@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, useRouter } from 'expo-router'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   PanResponder,
   Platform,
@@ -14,21 +13,9 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import type { Session } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
 import { TabSlideWrapper } from '../components/TabSlideWrapper'
-
-type ShoppingItem = {
-  id: string
-  user_id: string
-  capture_id: string | null
-  item_name: string
-  quantity: string | null
-  completed: boolean
-  completed_at: string | null
-  created_at: string
-}
+import { useAppData, type ShoppingItem } from '../context/AppDataContext'
 
 function SwipeableShoppingRow({
   item,
@@ -125,83 +112,20 @@ function SwipeableShoppingRow({
 
 export default function ShoppingScreen() {
   const router = useRouter()
-  const [session, setSession] = useState<Session | null>(null)
-  const [items, setItems] = useState<ShoppingItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const {
+    isSignedIn,
+    shoppingItems: items,
+    shoppingLoading: loading,
+    toggleShoppingItem: toggleItem,
+    deleteShoppingItem: deleteItem,
+    updateQuantity,
+  } = useAppData()
   const [showBought, setShowBought] = useState(false)
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
-    return () => sub.subscription.unsubscribe()
-  }, [])
-
-  const fetchItems = useCallback(async (userId: string) => {
-    const { data } = await supabase
-      .from('shopping_items')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-    setItems((data as ShoppingItem[]) ?? [])
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    if (!session?.user) return
-    const userId = session.user.id
-    fetchItems(userId)
-
-    const channel = supabase
-      .channel(`shopping:${userId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'shopping_items', filter: `user_id=eq.${userId}` },
-        () => fetchItems(userId)
-      )
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [session?.user?.id, fetchItems])
-
-  const toggleItem = useCallback(async (item: ShoppingItem) => {
-    const newCompleted = !item.completed
-    setItems(prev => prev.map(i =>
-      i.id === item.id
-        ? { ...i, completed: newCompleted, completed_at: newCompleted ? new Date().toISOString() : null }
-        : i
-    ))
-    await supabase.from('shopping_items').update({
-      completed: newCompleted,
-      completed_at: newCompleted ? new Date().toISOString() : null,
-    }).eq('id', item.id)
-  }, [])
-
-  const deleteItem = useCallback(async (item: ShoppingItem) => {
-    const doDelete = async () => {
-      setItems(prev => prev.filter(i => i.id !== item.id))
-      await supabase.from('shopping_items').delete().eq('id', item.id)
-    }
-
-    if (Platform.OS === 'web') {
-      if (confirm('Delete this item?')) doDelete()
-    } else {
-      Alert.alert('Delete Item', 'Are you sure?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: doDelete },
-      ])
-    }
-  }, [])
-
-  const updateQuantity = useCallback(async (itemId: string, qty: string) => {
-    const value = qty || null
-    setItems(prev => prev.map(i => i.id === itemId ? { ...i, quantity: value } : i))
-    await supabase.from('shopping_items').update({ quantity: value }).eq('id', itemId)
-  }, [])
 
   const activeItems = items.filter(i => !i.completed)
   const boughtItems = items.filter(i => i.completed)
 
-  if (!session?.user) {
+  if (!isSignedIn) {
     return (
       <TabSlideWrapper tabIndex={1}>
         <View style={s.container}>
