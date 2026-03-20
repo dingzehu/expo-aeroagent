@@ -1,5 +1,4 @@
 import { AppDataProvider } from '../context/AppDataContext'
-import Auth, { type AuthMode } from '../components/Auth'
 import ProfileEditForm from '../components/ProfileEditForm'
 import ProfileHeader from '../components/ProfileHeader'
 import { AuthModalProvider, useAuthModal } from '../context/AuthModalContext'
@@ -97,8 +96,7 @@ function RootLayoutInner() {
   const drawerAnim = useRef(new Animated.Value(0)).current
   const drawerWidth = 340
   */
-  const { authVisible, openAuthModal, closeAuthModal } = useAuthModal()
-  const [authMode] = useState<AuthMode>('signIn')
+  const [sessionLoading, setSessionLoading] = useState(true)
   const [profileModalVisible, setProfileModalVisible] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null)
   const { height: screenHeight } = useWindowDimensions()
@@ -119,6 +117,7 @@ function RootLayoutInner() {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       if (data.session?.user) fetchDisplayName(data.session.user.id)
+      setSessionLoading(false)
     })
     const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
@@ -130,6 +129,17 @@ function RootLayoutInner() {
     })
     return () => sub.subscription.unsubscribe()
   }, [fetchDisplayName])
+
+  // Single source of truth for auth routing
+  useEffect(() => {
+    if (sessionLoading) return
+    const isAuthRoute = pathname === '/welcome' || pathname.startsWith('/auth/')
+    if (!session && !isAuthRoute) {
+      router.replace('/welcome')
+    } else if (session && isAuthRoute) {
+      router.replace('/')
+    }
+  }, [session, sessionLoading, pathname])
 
   // Re-fetch displayName when navigating back from any screen (e.g. profile edit)
   useEffect(() => {
@@ -173,6 +183,10 @@ function RootLayoutInner() {
     { route: '/thoughts', labelOff: 'bulb-outline',             labelOn: 'bulb',             label: 'Thoughts', size: 22, activeColor: tokens.colors.violet },
   ]
 
+  if (sessionLoading) {
+    return <View style={{ flex: 1, backgroundColor: '#fff' }} />
+  }
+
   return (
     <View style={styles.root}>
       {showHeader && (
@@ -203,7 +217,9 @@ function RootLayoutInner() {
         <Stack.Screen name="shopping" options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="journal"  options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="journalEntry" options={{ headerShown: false }} />
-        <Stack.Screen name="login" options={{ headerTitle: 'Login' }} />
+        <Stack.Screen name="welcome"      options={{ headerShown: false, animation: 'none' }} />
+        <Stack.Screen name="auth/sign-in" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/sign-up" options={{ headerShown: false }} />
         <Stack.Screen name="notes" options={{ headerTitle: 'Studio', headerBackVisible: false }} />
         <Stack.Screen name="thoughts" options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="taskManager" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
@@ -311,26 +327,6 @@ function RootLayoutInner() {
             </View>
           )
         })()}
-      </Modal>
-
-      {/* Auth popup triggered from drawer */}
-      <Modal
-        transparent
-        visible={authVisible}
-        animationType="slide"
-        onRequestClose={closeAuthModal}
-      >
-        <Pressable style={styles.backdrop} onPress={closeAuthModal}>
-          <Pressable style={styles.sheet} onPress={() => {}}>
-            <Auth mode={authMode} onSuccess={closeAuthModal} />
-            <Pressable
-              style={[styles.menuItem, { marginTop: 8 }]}
-              onPress={closeAuthModal}
-            >
-              <Text style={styles.menuItemText}>Close</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
       </Modal>
 
       {/* Edit profile bottom sheet */}
