@@ -2,22 +2,89 @@ import Auth, { type AuthMode } from '../components/Auth'
 import ProfileEditForm from '../components/ProfileEditForm'
 import ProfileHeader from '../components/ProfileHeader'
 import { AuthModalProvider, useAuthModal } from '../context/AuthModalContext'
+import { TabSlideProvider, useTabSlide } from '../context/TabSlideContext'
 import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
 import type { Session } from '@supabase/supabase-js'
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, usePathname, useRouter } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Animated, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { Animated, Easing, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 export default function RootLayout() {
   return (
-    <AuthModalProvider>
-      <RootLayoutInner />
-    </AuthModalProvider>
+    <TabSlideProvider>
+      <AuthModalProvider>
+        <RootLayoutInner />
+      </AuthModalProvider>
+    </TabSlideProvider>
   )
 }
+
+type TabItemConfig = {
+  route: string
+  labelOff: React.ComponentProps<typeof Ionicons>['name']
+  labelOn: React.ComponentProps<typeof Ionicons>['name']
+  label: string
+  size: number
+  activeColor: string
+}
+
+function TabItem({ tab, active, onPress }: { tab: TabItemConfig; active: boolean; onPress: () => void }) {
+  const scaleAnim = useRef(new Animated.Value(active ? 1.28 : 1.0)).current
+  const labelOpacity = useRef(new Animated.Value(active ? 1 : 0)).current
+
+  useEffect(() => {
+    Animated.spring(scaleAnim, {
+      toValue: active ? 1.28 : 1.0,
+      friction: 8,
+      tension: 80,
+      useNativeDriver: true,
+    }).start()
+
+    Animated.timing(labelOpacity, {
+      toValue: active ? 1 : 0,
+      duration: active ? 200 : 150,
+      delay: active ? 50 : 0,
+      useNativeDriver: true,
+    }).start()
+  }, [active])
+
+  return (
+    <Pressable
+      style={tabStyles.tabItem}
+      onPress={onPress}
+      {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+    >
+      <Animated.View style={{ alignItems: 'center', transform: [{ scale: scaleAnim }] }}>
+        <Ionicons
+          name={active ? tab.labelOn : tab.labelOff}
+          size={tab.size}
+          color={active ? tab.activeColor : tokens.colors.textMuted}
+        />
+        <Animated.Text style={[tabStyles.tabLabel, { opacity: labelOpacity, height: 11 }]}>
+          {tab.label}
+        </Animated.Text>
+      </Animated.View>
+    </Pressable>
+  )
+}
+
+const tabStyles = StyleSheet.create({
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  tabLabel: {
+    fontSize: 10,
+    fontWeight: '600' as const,
+    color: tokens.colors.textMuted,
+    marginTop: 3,
+    textAlign: 'center',
+  },
+})
 
 function RootLayoutInner() {
   const [session, setSession] = useState<Session | null>(null)
@@ -93,13 +160,15 @@ function RootLayoutInner() {
   const showHeader = !!session?.user && (pathname === '/' || pathname === '/thoughts' || pathname === '/notes' || pathname === '/tasks' || pathname === '/shopping' || pathname === '/journal')
   const showTabs = !!session?.user && TAB_ROUTES.includes(pathname)
 
-  const TAB_ITEMS = [
-    { route: '/tasks',    labelOff: 'checkmark-circle-outline' as const, labelOn: 'checkmark-circle' as const, label: 'Tasks',    size: 22 },
-    { route: '/shopping', labelOff: 'cart-outline' as const,             labelOn: 'cart' as const,             label: 'Shopping', size: 22 },
-    { route: '/',         labelOff: 'flash-outline' as const,            labelOn: 'flash' as const,            label: 'Capture',  size: 26 },
-    { route: '/journal',  labelOff: 'book-outline' as const,             labelOn: 'book' as const,             label: 'Journal',  size: 22 },
-    { route: '/thoughts', labelOff: 'bulb-outline' as const,             labelOn: 'bulb' as const,             label: 'Thoughts', size: 22 },
-  ] as const
+  const { setTab } = useTabSlide()
+
+  const TAB_ITEMS: TabItemConfig[] = [
+    { route: '/tasks',    labelOff: 'checkmark-circle-outline', labelOn: 'checkmark-circle', label: 'Tasks',    size: 22, activeColor: tokens.colors.primary },
+    { route: '/shopping', labelOff: 'cart-outline',             labelOn: 'cart',             label: 'Shopping', size: 22, activeColor: tokens.colors.warning },
+    { route: '/',         labelOff: 'flash-outline',            labelOn: 'flash',            label: 'Capture',  size: 26, activeColor: tokens.colors.primary },
+    { route: '/journal',  labelOff: 'book-outline',             labelOn: 'book',             label: 'Journal',  size: 22, activeColor: tokens.colors.success },
+    { route: '/thoughts', labelOff: 'bulb-outline',             labelOn: 'bulb',             label: 'Thoughts', size: 22, activeColor: tokens.colors.violet },
+  ]
 
   return (
     <View style={styles.root}>
@@ -126,14 +195,14 @@ function RootLayoutInner() {
           headerBackVisible: true,
         }}
       >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="tasks" options={{ headerShown: false }} />
-        <Stack.Screen name="shopping" options={{ headerShown: false }} />
-        <Stack.Screen name="journal" options={{ headerShown: false }} />
+        <Stack.Screen name="index"    options={{ headerShown: false, animation: 'none' }} />
+        <Stack.Screen name="tasks"    options={{ headerShown: false, animation: 'none' }} />
+        <Stack.Screen name="shopping" options={{ headerShown: false, animation: 'none' }} />
+        <Stack.Screen name="journal"  options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="journalEntry" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerTitle: 'Login' }} />
         <Stack.Screen name="notes" options={{ headerTitle: 'Studio', headerBackVisible: false }} />
-        <Stack.Screen name="thoughts" options={{ headerShown: false }} />
+        <Stack.Screen name="thoughts" options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="taskManager" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
         <Stack.Screen name="profile" options={{ headerTitle: 'Edit Profile', animation: 'slide_from_bottom' }} />
       </Stack>
@@ -284,23 +353,18 @@ function RootLayoutInner() {
       {/* Bottom tab bar */}
       {showTabs && (
         <View style={[styles.tabBar, { paddingBottom: insets.bottom || 8 }]}>
-          {TAB_ITEMS.map(tab => {
+          {TAB_ITEMS.map((tab, index) => {
             const active = pathname === tab.route
             return (
-              <Pressable
+              <TabItem
                 key={tab.route}
-                style={styles.tabItem}
-                onPress={() => router.replace(tab.route as any)}
-              >
-                <Ionicons
-                  name={active ? tab.labelOn : tab.labelOff}
-                  size={tab.size}
-                  color={active ? tokens.colors.primary : tokens.colors.textMuted}
-                />
-                <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
-                  {tab.label}
-                </Text>
-              </Pressable>
+                tab={tab}
+                active={active}
+                onPress={() => {
+                  setTab(index)
+                  router.replace(tab.route as any)
+                }}
+              />
             )
           })}
         </View>
@@ -435,20 +499,5 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: tokens.colors.border,
     ...Platform.select({ web: { boxShadow: '0 -1px 0 #E5E7EB' } as object, default: {} }),
-  },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 8,
-    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
-  },
-  tabLabel: {
-    fontSize: tokens.fontSize.xxs,
-    fontWeight: tokens.fontWeight.semibold,
-    color: tokens.colors.textMuted,
-    marginTop: 3,
-  },
-  tabLabelActive: {
-    color: tokens.colors.primary,
   },
 })
