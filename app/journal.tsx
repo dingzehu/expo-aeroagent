@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, useRouter } from 'expo-router'
-import React, { useState } from 'react'
+import React from 'react'
 import {
   ActivityIndicator,
   Platform,
@@ -210,7 +210,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: tokens.colors.surface,
-    marginHorizontal: 12,
+    marginHorizontal: 16,
     marginBottom: 6,
     borderRadius: 12,
     padding: 12,
