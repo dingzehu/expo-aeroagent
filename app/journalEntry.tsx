@@ -152,7 +152,14 @@ export default function JournalEntryScreen() {
     <View style={s.container}>
       {/* Top bar — drag handle + breadcrumb. Always visible, outside content animation. */}
       <View style={s.topBar}>
-        <View style={s.dragHandle} />
+        <Pressable
+          style={s.dragHandleHitArea}
+          onPress={() => router.back()}
+          accessibilityLabel="Dismiss"
+          {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+        >
+          <View style={s.dragHandle} />
+        </Pressable>
         <Pressable
           style={s.breadcrumb}
           onPress={() => router.back()}
@@ -241,12 +248,16 @@ const s = StyleSheet.create({
     paddingBottom: 4,
     backgroundColor: tokens.colors.bgJournal,
   },
+  dragHandleHitArea: {
+    alignItems: 'center',
+    paddingVertical: 4,
+    marginBottom: 4,
+  },
   dragHandle: {
-    width: 36,
+    width: 56,
     height: 4,
     borderRadius: 2,
     backgroundColor: tokens.colors.border,
-    marginBottom: 8,
   },
   breadcrumb: {
     flexDirection: 'row',

@@ -231,7 +231,7 @@ function RootLayoutInner() {
         <Stack.Screen name="tasks"    options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="shopping" options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="journal"  options={{ headerShown: false, animation: 'none' }} />
-        <Stack.Screen name="journalEntry" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="journalEntry" options={{ headerShown: false, animation: 'slide_from_bottom', gestureDirection: 'vertical' }} />
         <Stack.Screen name="welcome"      options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="auth/sign-in" options={{ headerShown: false }} />
         <Stack.Screen name="auth/sign-up" options={{ headerShown: false }} />
