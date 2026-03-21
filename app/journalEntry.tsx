@@ -32,45 +32,6 @@ type Capture = {
   raw_text: string | null
 }
 
-const MOOD_COLORS: Record<string, string> = {
-  happy: tokens.colors.success,
-  good: tokens.colors.success,
-  great: tokens.colors.success,
-  excited: tokens.colors.success,
-  grateful: tokens.colors.success,
-  calm: '#6366F1',
-  relaxed: '#6366F1',
-  peaceful: '#6366F1',
-  content: '#6366F1',
-  sad: '#3B82F6',
-  tired: '#3B82F6',
-  exhausted: '#3B82F6',
-  lonely: '#3B82F6',
-  anxious: '#F59E0B',
-  stressed: '#F59E0B',
-  worried: '#F59E0B',
-  nervous: '#F59E0B',
-  angry: tokens.colors.error,
-  frustrated: tokens.colors.error,
-  annoyed: tokens.colors.error,
-  irritated: tokens.colors.error,
-}
-
-function moodColor(mood: string | null): string {
-  if (!mood) return tokens.colors.neutral
-  return MOOD_COLORS[mood.toLowerCase()] ?? tokens.colors.neutral
-}
-
-function formatDateTime(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }) + ' at ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-}
-
 
 export default function JournalEntryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -189,6 +150,19 @@ export default function JournalEntryScreen() {
 
   return (
     <View style={s.container}>
+      {/* Top bar — drag handle + breadcrumb. Always visible, outside content animation. */}
+      <View style={s.topBar}>
+        <View style={s.dragHandle} />
+        <Pressable
+          style={s.breadcrumb}
+          onPress={() => router.back()}
+          {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+        >
+          <Ionicons name="chevron-back" size={14} color={tokens.colors.textMuted} />
+          <Text style={s.breadcrumbText}>Journal</Text>
+        </Pressable>
+      </View>
+
       <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         <Animated.View style={contentStyle}>
           {/* Content */}
@@ -261,12 +235,38 @@ const s = StyleSheet.create({
     flex: 1,
     backgroundColor: tokens.colors.bgJournal,
   },
+  topBar: {
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 4,
+    backgroundColor: tokens.colors.bgJournal,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: tokens.colors.border,
+    marginBottom: 8,
+  },
+  breadcrumb: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  breadcrumbText: {
+    fontSize: tokens.fontSize.sm,
+    fontWeight: tokens.fontWeight.semibold,
+    color: tokens.colors.textMuted,
+  },
   scrollContent: {
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 80,
   },
   contentCard: {
-    marginHorizontal: 12,
+    marginHorizontal: 16,
     marginTop: 8,
     backgroundColor: tokens.colors.surfaceAlt,
     borderRadius: tokens.radius.card,

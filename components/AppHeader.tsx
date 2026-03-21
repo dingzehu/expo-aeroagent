@@ -43,7 +43,6 @@ type Props = {
   email?: string | null
   onMenuPress?: (anchor: { x: number; y: number }) => void
   onAvatarPress?: () => void
-  onBack?: () => void
 }
 
 export default function AppHeader({
@@ -51,7 +50,6 @@ export default function AppHeader({
   email,
   onMenuPress,
   onAvatarPress,
-  onBack,
 }: Props) {
   const insets = useSafeAreaInsets()
   const { height: screenHeight } = useWindowDimensions()
@@ -143,14 +141,6 @@ export default function AppHeader({
       >
         <View style={styles.entryContent} pointerEvents={isJournalEntry ? 'auto' : 'none'}>
           <Pressable
-            style={[styles.backBtn, { top: insets.top + 8 }]}
-            onPress={onBack}
-            {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
-          >
-            <Ionicons name="chevron-back" size={20} color="#fff" />
-            <Text style={styles.backLabel}>Journal</Text>
-          </Pressable>
-          <Pressable
             style={[styles.entryMenuBtn, { top: insets.top + 10 }]}
             onPress={openEntryMenu}
             {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
@@ -222,11 +212,6 @@ const styles = StyleSheet.create({
   // Entry layer
   entryLayer: { paddingHorizontal: 20, paddingBottom: 16, justifyContent: 'flex-end' },
   entryContent: { flex: 1, justifyContent: 'flex-end' },
-  backBtn: {
-    position: 'absolute', left: 0, zIndex: 20,
-    flexDirection: 'row', alignItems: 'center', gap: 2,
-  },
-  backLabel: { color: '#fff', fontSize: tokens.fontSize.lg, fontWeight: tokens.fontWeight.semibold },
   entryMenuBtn: { position: 'absolute', right: 4, zIndex: 20, padding: 4 },
   entryRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 14 },
   entryIconWrap: {

@@ -213,7 +213,6 @@ function RootLayoutInner() {
           email={session!.user.email}
           onMenuPress={(anchor) => setMenuAnchor(anchor)}
           onAvatarPress={() => router.push('/profile')}
-          onBack={() => router.back()}
         />
       )}
 
