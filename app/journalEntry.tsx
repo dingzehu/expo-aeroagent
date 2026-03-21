@@ -1,8 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -14,11 +13,60 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import { Animated as RNAnimated } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated'
 import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
 import { useAppData } from '../context/AppDataContext'
 import { useEntryMenu } from '../context/EntryMenuContext'
+
+function TopBar({ onBack }: { onBack: () => void }) {
+  return (
+    <View style={s.topBar}>
+      <RNAnimated.View>
+        <Pressable
+          style={s.dragHandleHitArea}
+          onPress={onBack}
+          accessibilityLabel="Dismiss"
+          {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+        >
+          <View style={s.dragHandle} />
+        </Pressable>
+      </RNAnimated.View>
+      <Pressable
+        style={s.breadcrumb}
+        onPress={onBack}
+        {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+      >
+        <Ionicons name="chevron-back" size={14} color={tokens.colors.textMuted} />
+        <Text style={s.breadcrumbText}>Journal</Text>
+      </Pressable>
+    </View>
+  )
+}
+
+function EntrySkeleton() {
+  const pulseAnim = useRef(new RNAnimated.Value(0.5)).current
+  useEffect(() => {
+    const anim = RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(pulseAnim, { toValue: 1,   duration: 700, useNativeDriver: true }),
+        RNAnimated.timing(pulseAnim, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+      ])
+    )
+    anim.start()
+    return () => anim.stop()
+  }, [])
+
+  return (
+    <RNAnimated.View style={[s.contentCard, { opacity: pulseAnim, gap: 12 }]}>
+      <View style={[sk.box, { height: 18, width: '95%' }]} />
+      <View style={[sk.box, { height: 18, width: '80%' }]} />
+      <View style={[sk.box, { height: 18, width: '90%' }]} />
+      <View style={[sk.box, { height: 18, width: '65%' }]} />
+    </RNAnimated.View>
+  )
+}
 
 type JournalEntry = {
   id: string
@@ -128,7 +176,8 @@ export default function JournalEntryScreen() {
   if (loading) {
     return (
       <View style={s.container}>
-        <ActivityIndicator size="large" color={tokens.colors.success} style={{ marginTop: 80 }} />
+        <TopBar onBack={() => router.back()} />
+        <EntrySkeleton />
       </View>
     )
   }
@@ -150,25 +199,7 @@ export default function JournalEntryScreen() {
 
   return (
     <View style={s.container}>
-      {/* Top bar — drag handle + breadcrumb. Always visible, outside content animation. */}
-      <View style={s.topBar}>
-        <Pressable
-          style={s.dragHandleHitArea}
-          onPress={() => router.back()}
-          accessibilityLabel="Dismiss"
-          {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
-        >
-          <View style={s.dragHandle} />
-        </Pressable>
-        <Pressable
-          style={s.breadcrumb}
-          onPress={() => router.back()}
-          {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
-        >
-          <Ionicons name="chevron-back" size={14} color={tokens.colors.textMuted} />
-          <Text style={s.breadcrumbText}>Journal</Text>
-        </Pressable>
-      </View>
+      <TopBar onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         <Animated.View style={contentStyle}>
@@ -236,6 +267,13 @@ export default function JournalEntryScreen() {
     </View>
   )
 }
+
+const sk = StyleSheet.create({
+  box: {
+    backgroundColor: tokens.colors.border,
+    borderRadius: tokens.radius.sm,
+  },
+})
 
 const s = StyleSheet.create({
   container: {

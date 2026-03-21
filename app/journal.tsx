@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, useRouter } from 'expo-router'
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import {
-  ActivityIndicator,
+  Animated,
   Platform,
   Pressable,
   ScrollView,
@@ -66,6 +66,38 @@ function dateLabelFor(iso: string): string {
 
 type Section = { label: string; data: JournalEntry[] }
 
+function JournalSkeleton() {
+  const pulseAnim = useRef(new Animated.Value(0.5)).current
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1,   duration: 700, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+      ])
+    )
+    anim.start()
+    return () => anim.stop()
+  }, [])
+
+  return (
+    <Animated.View style={{ opacity: pulseAnim, paddingTop: 8 }}>
+      {[0, 1, 2, 3].map(i => (
+        <View key={i} style={[s.entryRow, { marginBottom: 6 }]}>
+          <View style={s.entryLeft}>
+            <View style={[sk.box, { width: 34, height: 11, borderRadius: 4 }]} />
+            <View style={[sk.box, { width: 46, height: 18, borderRadius: 9 }]} />
+          </View>
+          <View style={{ flex: 1, gap: 7 }}>
+            <View style={[sk.box, { height: 13, width: '88%' }]} />
+            <View style={[sk.box, { height: 13, width: '60%' }]} />
+          </View>
+          <View style={[sk.box, { width: 14, height: 14, borderRadius: 4 }]} />
+        </View>
+      ))}
+    </Animated.View>
+  )
+}
+
 export default function JournalScreen() {
   const router = useRouter()
   const {
@@ -113,7 +145,7 @@ export default function JournalScreen() {
         </View>
 
         {loading ? (
-          <ActivityIndicator size="large" color={tokens.colors.success} style={{ marginTop: 40 }} />
+          <JournalSkeleton />
         ) : entries.length === 0 ? (
           <View style={s.emptyWrap}>
             <Ionicons name="book-outline" size={48} color={tokens.colors.border} />
@@ -158,6 +190,13 @@ export default function JournalScreen() {
     </TabSlideWrapper>
   )
 }
+
+const sk = StyleSheet.create({
+  box: {
+    backgroundColor: tokens.colors.border,
+    borderRadius: tokens.radius.sm,
+  },
+})
 
 const s = StyleSheet.create({
   container: {
