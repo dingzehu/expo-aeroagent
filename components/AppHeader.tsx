@@ -67,16 +67,23 @@ export default function AppHeader({
     ? journalEntries.find(e => e.id === params.id)
     : undefined
 
-  const profileOpacity = useSharedValue(isJournalEntry ? 0 : 1)
-  const entryOpacity = useSharedValue(isJournalEntry ? 1 : 0)
+  // Shared value: 0 = profile visible, 1 = entry visible
+  const progress = useSharedValue(isJournalEntry ? 1 : 0)
 
   useEffect(() => {
-    profileOpacity.value = withTiming(isJournalEntry ? 0 : 1, { duration: 200 })
-    entryOpacity.value = withTiming(isJournalEntry ? 1 : 0, { duration: 200 })
+    progress.value = withTiming(isJournalEntry ? 1 : 0, { duration: 240 })
   }, [isJournalEntry])
 
-  const profileAnimStyle = useAnimatedStyle(() => ({ opacity: profileOpacity.value }))
-  const entryAnimStyle = useAnimatedStyle(() => ({ opacity: entryOpacity.value }))
+  // Profile: fades out and slides up as progress → 1
+  const profileAnimStyle = useAnimatedStyle(() => ({
+    opacity: 1 - progress.value,
+    transform: [{ translateY: -progress.value * 18 }],
+  }))
+  // Entry: fades in and slides up into place as progress → 1
+  const entryAnimStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [{ translateY: (1 - progress.value) * 18 }],
+  }))
 
   const name = displayName || 'Aero User'
   const initials = name.substring(0, 2).toUpperCase()
