@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons'
-import { LinearGradient } from 'expo-linear-gradient'
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
@@ -13,13 +12,13 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
 } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated'
 import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
 import { useAppData } from '../context/AppDataContext'
+import { useEntryMenu } from '../context/EntryMenuContext'
 
 type JournalEntry = {
   id: string
@@ -72,163 +71,12 @@ function formatDateTime(iso: string): string {
   }) + ' at ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 }
 
-function EntryHeader({
-  entry,
-  onBack,
-  onMenuPress,
-}: {
-  entry: JournalEntry
-  onBack: () => void
-  onMenuPress: () => void
-}) {
-  const insets = useSafeAreaInsets()
-  const { height: screenHeight } = useWindowDimensions()
-  return (
-    <View style={[hStyles.container, { height: screenHeight * 0.15, paddingTop: insets.top }]}>
-      <LinearGradient
-        colors={[tokens.colors.primaryDark, tokens.colors.primaryLight]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
-      <View style={hStyles.circle1} pointerEvents="none" />
-      <View style={hStyles.circle2} pointerEvents="none" />
-
-      <Pressable
-        style={[hStyles.backBtn, { top: insets.top + 8 }]}
-        onPress={onBack}
-        {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
-      >
-        <Ionicons name="chevron-back" size={20} color="#fff" />
-        <Text style={hStyles.backLabel}>Journal</Text>
-      </Pressable>
-
-      <Pressable
-        style={[hStyles.menuBtn, { top: insets.top + 10 }]}
-        onPress={onMenuPress}
-        {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
-      >
-        <Ionicons name="ellipsis-horizontal" size={22} color="rgba(255,255,255,0.8)" />
-      </Pressable>
-
-      <View style={hStyles.content}>
-        <View style={hStyles.iconWrap}>
-          <Ionicons name="book" size={26} color="#fff" />
-        </View>
-        <View style={hStyles.info}>
-          <Text style={hStyles.brandLabel}>Journal</Text>
-          <Text style={hStyles.dateText} numberOfLines={1}>{formatDateTime(entry.created_at)}</Text>
-          {entry.mood && (
-            <View style={[hStyles.moodBadge, { backgroundColor: moodColor(entry.mood) }]}>
-              <Text style={hStyles.moodText}>{entry.mood}</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    </View>
-  )
-}
-
-const hStyles = StyleSheet.create({
-  container: {
-    width: '100%',
-    backgroundColor: tokens.colors.primaryDark,
-    overflow: 'hidden',
-    justifyContent: 'flex-end',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    position: 'relative',
-  },
-  circle1: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    top: -50,
-    right: -50,
-  },
-  circle2: {
-    position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    bottom: -30,
-    left: '20%',
-  },
-  backBtn: {
-    position: 'absolute',
-    left: 16,
-    zIndex: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  backLabel: {
-    color: '#fff',
-    fontSize: tokens.fontSize.lg,
-    fontWeight: tokens.fontWeight.semibold,
-  },
-  menuBtn: {
-    position: 'absolute',
-    right: 16,
-    zIndex: 20,
-    padding: 4,
-  },
-  content: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    zIndex: 10,
-    gap: 14,
-  },
-  iconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  info: {
-    flex: 1,
-    gap: 3,
-  },
-  brandLabel: {
-    fontSize: tokens.fontSize.xs,
-    color: 'rgba(255,255,255,0.6)',
-    fontWeight: tokens.fontWeight.semibold,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    marginBottom: 1,
-  },
-  dateText: {
-    fontSize: tokens.fontSize.base,
-    color: '#fff',
-    fontWeight: tokens.fontWeight.bold,
-    letterSpacing: -0.2,
-  },
-  moodBadge: {
-    alignSelf: 'flex-start',
-    borderRadius: tokens.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    marginTop: 2,
-  },
-  moodText: {
-    fontSize: tokens.fontSize.xs,
-    fontWeight: tokens.fontWeight.bold,
-    color: '#fff',
-    textTransform: 'capitalize',
-  },
-})
 
 export default function JournalEntryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const { removeJournalEntry, updateJournalEntryContent } = useAppData()
+  const { registerOpenMenu } = useEntryMenu()
   const [entry, setEntry] = useState<JournalEntry | null>(null)
   const [captureRawText, setCaptureRawText] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -238,6 +86,23 @@ export default function JournalEntryScreen() {
   const [editVisible, setEditVisible] = useState(false)
   const [editContent, setEditContent] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // Register the menu opener so AppHeader's ⋯ button can trigger it
+  useEffect(() => {
+    registerOpenMenu(() => setMenuVisible(true))
+  }, [registerOpenMenu])
+
+  // Content entrance animation
+  const contentAnim = useSharedValue(0)
+  useEffect(() => {
+    if (!loading && entry) {
+      contentAnim.value = withSpring(1, { damping: 22, stiffness: 130 })
+    }
+  }, [loading, entry])
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: contentAnim.value,
+    transform: [{ translateY: (1 - contentAnim.value) * 18 }],
+  }))
 
   useEffect(() => {
     if (!id) return
@@ -302,7 +167,6 @@ export default function JournalEntryScreen() {
   if (loading) {
     return (
       <View style={s.container}>
-        <Stack.Screen options={{ headerShown: false }} />
         <ActivityIndicator size="large" color={tokens.colors.success} style={{ marginTop: 80 }} />
       </View>
     )
@@ -311,7 +175,6 @@ export default function JournalEntryScreen() {
   if (!entry) {
     return (
       <View style={s.container}>
-        <Stack.Screen options={{ headerShown: false }} />
         <View style={s.emptyWrap}>
           <Text style={s.emptyTitle}>Entry not found</Text>
           <Pressable style={s.backButton} onPress={() => router.back()}>
@@ -326,29 +189,23 @@ export default function JournalEntryScreen() {
 
   return (
     <View style={s.container}>
-      <Stack.Screen options={{ headerShown: false }} />
-
-      <EntryHeader
-        entry={entry}
-        onBack={() => router.back()}
-        onMenuPress={() => setMenuVisible(true)}
-      />
-
       <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Content */}
-        <View style={s.contentCard}>
-          <Text style={s.contentText}>{entry.content}</Text>
-        </View>
-
-        {/* Original capture text */}
-        {showOriginal && (
-          <View style={s.originalSection}>
-            <Text style={s.originalLabel}>Original capture</Text>
-            <View style={s.originalCard}>
-              <Text style={s.originalText}>{captureRawText}</Text>
-            </View>
+        <Animated.View style={contentStyle}>
+          {/* Content */}
+          <View style={s.contentCard}>
+            <Text style={s.contentText}>{entry.content}</Text>
           </View>
-        )}
+
+          {/* Original capture text */}
+          {showOriginal && (
+            <View style={s.originalSection}>
+              <Text style={s.originalLabel}>Original capture</Text>
+              <View style={s.originalCard}>
+                <Text style={s.originalText}>{captureRawText}</Text>
+              </View>
+            </View>
+          )}
+        </Animated.View>
       </ScrollView>
 
       {/* Context menu */}
