@@ -1,7 +1,8 @@
 import { AppDataProvider } from '../context/AppDataContext'
 import ProfileEditForm from '../components/ProfileEditForm'
-import ProfileHeader from '../components/ProfileHeader'
+import AppHeader from '../components/AppHeader'
 import { AuthModalProvider, useAuthModal } from '../context/AuthModalContext'
+import { EntryMenuProvider } from '../context/EntryMenuContext'
 import { TabSlideProvider, useTabSlide } from '../context/TabSlideContext'
 import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
@@ -10,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { Stack, usePathname, useRouter } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Animated, Easing, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import ReAnimated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 export default function RootLayout() {
@@ -17,7 +19,9 @@ export default function RootLayout() {
     <AppDataProvider>
       <TabSlideProvider>
         <AuthModalProvider>
-          <RootLayoutInner />
+          <EntryMenuProvider>
+            <RootLayoutInner />
+          </EntryMenuProvider>
         </AuthModalProvider>
       </TabSlideProvider>
     </AppDataProvider>
@@ -170,10 +174,24 @@ function RootLayoutInner() {
   */
 
   const TAB_ROUTES = ['/', '/tasks', '/shopping', '/journal', '/thoughts']
-  const showHeader = !!session?.user && (pathname === '/' || pathname === '/thoughts' || pathname === '/notes' || pathname === '/tasks' || pathname === '/shopping' || pathname === '/journal')
+  const showHeader = !!session?.user && (
+    pathname === '/' || pathname === '/thoughts' || pathname === '/notes' ||
+    pathname === '/tasks' || pathname === '/shopping' ||
+    pathname === '/journal' || pathname === '/journalEntry'
+  )
   const showTabs = !!session?.user && TAB_ROUTES.includes(pathname)
 
   const { setTab } = useTabSlide()
+
+  // Tab bar slide-out animation
+  const tabAnim = useSharedValue(showTabs ? 1 : 0)
+  useEffect(() => {
+    tabAnim.value = withTiming(showTabs ? 1 : 0, { duration: 220 })
+  }, [showTabs])
+  const tabAnimStyle = useAnimatedStyle(() => ({
+    opacity: tabAnim.value,
+    transform: [{ translateY: (1 - tabAnim.value) * 60 }],
+  }))
 
   const TAB_ITEMS: TabItemConfig[] = [
     { route: '/tasks',    labelOff: 'checkmark-circle-outline', labelOn: 'checkmark-circle', label: 'Tasks',    size: 22, activeColor: tokens.colors.primary },
@@ -190,14 +208,12 @@ function RootLayoutInner() {
   return (
     <View style={styles.root}>
       {showHeader && (
-        <ProfileHeader
+        <AppHeader
           displayName={displayName}
           email={session!.user.email}
-          showMenu={showHeader}
           onMenuPress={(anchor) => setMenuAnchor(anchor)}
-          showBack={!TAB_ROUTES.includes(pathname)}
-          onBackPress={() => router.back()}
           onAvatarPress={() => router.push('/profile')}
+          onBack={() => router.back()}
         />
       )}
 
@@ -216,7 +232,7 @@ function RootLayoutInner() {
         <Stack.Screen name="tasks"    options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="shopping" options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="journal"  options={{ headerShown: false, animation: 'none' }} />
-        <Stack.Screen name="journalEntry" options={{ headerShown: false }} />
+        <Stack.Screen name="journalEntry" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
         <Stack.Screen name="welcome"      options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="auth/sign-in" options={{ headerShown: false }} />
         <Stack.Screen name="auth/sign-up" options={{ headerShown: false }} />
@@ -350,8 +366,11 @@ function RootLayoutInner() {
       </Modal>
 
       {/* Bottom tab bar */}
-      {showTabs && (
-        <View style={[styles.tabBar, { paddingBottom: insets.bottom || 8 }]}>
+      {!!session?.user && (
+        <ReAnimated.View
+          style={[styles.tabBar, { paddingBottom: insets.bottom || 8 }, tabAnimStyle]}
+          pointerEvents={showTabs ? 'auto' : 'none'}
+        >
           {TAB_ITEMS.map((tab, index) => {
             const active = pathname === tab.route
             return (
@@ -366,7 +385,7 @@ function RootLayoutInner() {
               />
             )
           })}
-        </View>
+        </ReAnimated.View>
       )}
     </View>
   )
