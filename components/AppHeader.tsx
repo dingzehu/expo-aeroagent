@@ -41,7 +41,7 @@ function formatEntryDate(iso: string) {
 type Props = {
   displayName?: string | null
   email?: string | null
-  onMenuPress?: (anchor: { x: number; y: number }) => void
+  onMenuPress?: (buttonBottomY: number) => void
   onAvatarPress?: () => void
 }
 
@@ -86,12 +86,6 @@ export default function AppHeader({
   const name = displayName || 'Aero User'
   const initials = name.substring(0, 2).toUpperCase()
 
-  const handleMenuPress = () => {
-    menuBtnRef.current?.measureInWindow((x, y, width, height) => {
-      onMenuPress?.({ x: x + width / 2, y: y + height / 2 })
-    })
-  }
-
   return (
     <View style={[styles.container, { height: screenHeight * 0.15, paddingTop: insets.top }]}>
       <LinearGradient
@@ -106,16 +100,22 @@ export default function AppHeader({
       {/* ── Profile layer ── */}
       <Animated.View
         style={[StyleSheet.absoluteFillObject, styles.profileLayer, { paddingTop: insets.top }, profileAnimStyle]}
+        pointerEvents={isJournalEntry ? 'none' : 'auto'}
       >
-        <View style={styles.profileContent} pointerEvents={isJournalEntry ? 'none' : 'auto'}>
-          <Pressable
-            ref={menuBtnRef}
-            onPress={handleMenuPress}
-            style={[styles.menuButton, { top: insets.top + 10 }]}
-            {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
-          >
-            <Ionicons name="ellipsis-horizontal" size={28} color="#fff" />
-          </Pressable>
+        {/* Menu button — top-right of profile block, below safe area */}
+        <Pressable
+          ref={menuBtnRef}
+          onPress={() => {
+            menuBtnRef.current?.measureInWindow((_x, y, _w, h) => {
+              onMenuPress?.(y + h)
+            })
+          }}
+          style={[styles.menuButton, { top: insets.top + 16 }]}
+          {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+        >
+          <Ionicons name="ellipsis-horizontal" size={28} color="#fff" />
+        </Pressable>
+        <View style={styles.profileContent}>
           <View style={styles.profileRow}>
             <Pressable
               onPress={onAvatarPress}
@@ -138,8 +138,9 @@ export default function AppHeader({
       {/* ── Entry layer ── */}
       <Animated.View
         style={[StyleSheet.absoluteFillObject, styles.entryLayer, { paddingTop: insets.top }, entryAnimStyle]}
+        pointerEvents={isJournalEntry ? 'auto' : 'none'}
       >
-        <View style={styles.entryContent} pointerEvents={isJournalEntry ? 'auto' : 'none'}>
+        <View style={styles.entryContent}>
           <Pressable
             style={[styles.entryMenuBtn, { top: insets.top + 10 }]}
             onPress={openEntryMenu}
@@ -192,7 +193,7 @@ const styles = StyleSheet.create({
   // Profile layer
   profileLayer: { paddingHorizontal: 24, paddingBottom: 20, justifyContent: 'flex-end' },
   profileContent: { flex: 1, justifyContent: 'flex-end' },
-  menuButton: { position: 'absolute', right: 0, zIndex: 20, padding: 4 },
+  menuButton: { position: 'absolute', right: 20, zIndex: 20, padding: 8 },
   profileRow: { flexDirection: 'row', alignItems: 'flex-end' },
   avatarWrap: {
     width: 80, height: 80, borderRadius: 40,

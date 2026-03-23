@@ -96,6 +96,34 @@ function buildSuccessChip(items: ExtractedItem[]): { bg: string; text: string } 
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Convert Gemini's natural-language due_date_hint into a real ISO timestamp.
+ * Returns null for anything unrecognised — never passes a bad string to Postgres.
+ */
+function parseDueDateHint(hint: string | undefined | null): string | null {
+  if (!hint || !hint.trim()) return null
+  const lower = hint.toLowerCase().trim()
+  const base = new Date()
+  base.setHours(9, 0, 0, 0)
+
+  if (lower.includes('today'))                             return base.toISOString()
+  if (lower.includes('tomorrow'))                          { base.setDate(base.getDate() + 1); return base.toISOString() }
+  if (lower.includes('next week') || lower.includes('this week')) { base.setDate(base.getDate() + 7); return base.toISOString() }
+
+  const days: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
+  for (const [name, target] of Object.entries(days)) {
+    if (lower.includes(name)) {
+      const current = base.getDay()
+      const diff = (target - current + 7) % 7 || 7  // always forward
+      base.setDate(base.getDate() + diff)
+      return base.toISOString()
+    }
+  }
+
+  return null  // unrecognised — safer than sending garbage to Postgres
+}
+
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diffMs / 60000)
@@ -593,30 +621,32 @@ export default function Index() {
 
     const captureId = captureRow?.id ?? null
 
-    const insertPromises = items.map((item) => {
+    const insertPromises = items.map(async (item) => {
       if (item.type === 'task') {
-        return supabase.from('tasks').insert({
+        const { error } = await supabase.from('tasks').insert({
           user_id: userId,
           capture_id: captureId,
           title: item.title ?? rawText,
-          due_date: item.due_date_hint ?? null,
+          due_date: parseDueDateHint(item.due_date_hint),
         })
+        if (error) console.error('[saveCapture] task insert error:', error.message, error.details)
       } else if (item.type === 'shopping') {
-        return supabase.from('shopping_items').insert({
+        const { error } = await supabase.from('shopping_items').insert({
           user_id: userId,
           capture_id: captureId,
           item_name: item.item_name ?? rawText,
-          quantity: item.quantity ?? null,
+          quantity: item.quantity || null,
         })
+        if (error) console.error('[saveCapture] shopping insert error:', error.message, error.details)
       } else if (item.type === 'journal') {
-        return supabase.from('journal_entries').insert({
+        const { error } = await supabase.from('journal_entries').insert({
           user_id: userId,
           capture_id: captureId,
           content: item.content ?? rawText,
-          mood: item.mood ?? null,
+          mood: item.mood || null,
         })
+        if (error) console.error('[saveCapture] journal insert error:', error.message, error.details)
       }
-      return Promise.resolve()
     })
 
     await Promise.all(insertPromises)

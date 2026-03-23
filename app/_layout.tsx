@@ -102,7 +102,7 @@ function RootLayoutInner() {
   */
   const [sessionLoading, setSessionLoading] = useState(true)
   const [profileModalVisible, setProfileModalVisible] = useState(false)
-  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null)
+  const [menuAnchor, setMenuAnchor] = useState<number | null>(null)
   const { height: screenHeight } = useWindowDimensions()
   const pathname = usePathname()
   const router = useRouter()
@@ -211,7 +211,7 @@ function RootLayoutInner() {
         <AppHeader
           displayName={displayName}
           email={session!.user.email}
-          onMenuPress={(anchor) => setMenuAnchor(anchor)}
+          onMenuPress={(bottomY) => setMenuAnchor(bottomY)}
           onAvatarPress={() => router.push('/profile')}
         />
       )}
@@ -320,28 +320,23 @@ function RootLayoutInner() {
         onRequestClose={() => setMenuAnchor(null)}
       >
         <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setMenuAnchor(null)} />
-        {!!menuAnchor && (() => {
-          const POPOVER_W = 180
-          const left = Math.max(menuAnchor.x - POPOVER_W + 14, 8)
-          const top = menuAnchor.y + 16
-          return (
-            <View style={[styles.popover, { left, top, width: POPOVER_W }]}>
-              <Pressable
-                style={styles.popoverItem}
-                onPress={() => { setMenuAnchor(null); setProfileModalVisible(true) }}
-              >
-                <Text style={styles.popoverItemText}>Edit profile</Text>
-              </Pressable>
-              <View style={styles.popoverDivider} />
-              <Pressable
-                style={styles.popoverItem}
-                onPress={async () => { setMenuAnchor(null); await supabase.auth.signOut() }}
-              >
-                <Text style={[styles.popoverItemText, { color: '#dc2626' }]}>Log Out</Text>
-              </Pressable>
-            </View>
-          )
-        })()}
+        {!!menuAnchor && (
+          <View style={[styles.popover, { top: (menuAnchor ?? 0) + 6, right: 16, width: 180 }]}>
+            <Pressable
+              style={styles.popoverItem}
+              onPress={() => { setMenuAnchor(null); setProfileModalVisible(true) }}
+            >
+              <Text style={styles.popoverItemText}>Edit profile</Text>
+            </Pressable>
+            <View style={styles.popoverDivider} />
+            <Pressable
+              style={styles.popoverItem}
+              onPress={async () => { setMenuAnchor(null); await supabase.auth.signOut() }}
+            >
+              <Text style={[styles.popoverItemText, { color: '#dc2626' }]}>Log Out</Text>
+            </Pressable>
+          </View>
+        )}
       </Modal>
 
       {/* Edit profile bottom sheet */}

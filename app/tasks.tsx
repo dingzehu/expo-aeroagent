@@ -2,8 +2,8 @@ import { Ionicons } from '@expo/vector-icons'
 import { Stack, useRouter } from 'expo-router'
 import React, { useRef, useState } from 'react'
 import {
-  ActivityIndicator,
   Animated,
+  Modal,
   PanResponder,
   Platform,
   Pressable,
@@ -16,6 +16,33 @@ import {
 import { tokens } from '../constants/tokens'
 import { TabSlideWrapper } from '../components/TabSlideWrapper'
 import { useAppData, type Task } from '../context/AppDataContext'
+
+function TaskSkeleton() {
+  const pulseAnim = useRef(new Animated.Value(0.5)).current
+  React.useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1,   duration: 700, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+      ])
+    )
+    anim.start()
+    return () => anim.stop()
+  }, [])
+  return (
+    <Animated.View style={{ opacity: pulseAnim, paddingTop: 8 }}>
+      {[0, 1, 2, 3].map(i => (
+        <View key={i} style={[sk.row]}>
+          <View style={sk.checkbox} />
+          <View style={{ flex: 1, gap: 6 }}>
+            <View style={[sk.box, { height: 14, width: '75%' }]} />
+          </View>
+          <View style={[sk.box, { width: 52, height: 22, borderRadius: 6 }]} />
+        </View>
+      ))}
+    </Animated.View>
+  )
+}
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null
@@ -44,6 +71,76 @@ function getDueDateUrgency(dueDate: string | null): { bg: string; text: string }
   if (due < today)    return { bg: '#FEF2F2', text: '#DC2626' }   // overdue — red
   if (due < tomorrow) return { bg: '#FEF3C7', text: '#92400E' }   // today — amber
   return { bg: '#EEF2FF', text: '#6366F1' }                       // future — indigo muted
+}
+
+// ─── Quick-pick date options ───────────────────────────────────────────────────
+function quickDateISO(option: 'today' | 'tomorrow' | 'in3days' | 'nextweek'): string {
+  const d = new Date()
+  d.setHours(9, 0, 0, 0)
+  if (option === 'tomorrow')  d.setDate(d.getDate() + 1)
+  if (option === 'in3days')   d.setDate(d.getDate() + 3)
+  if (option === 'nextweek')  d.setDate(d.getDate() + 7)
+  return d.toISOString()
+}
+
+function DueDateSheet({
+  task,
+  onSelect,
+  onClose,
+}: {
+  task: Task
+  onSelect: (iso: string | null) => void
+  onClose: () => void
+}) {
+  const options: { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; value: 'today' | 'tomorrow' | 'in3days' | 'nextweek' }[] = [
+    { label: 'Today',     icon: 'sunny-outline',    value: 'today' },
+    { label: 'Tomorrow',  icon: 'arrow-forward-circle-outline', value: 'tomorrow' },
+    { label: 'In 3 days', icon: 'time-outline',     value: 'in3days' },
+    { label: 'Next week', icon: 'calendar-outline', value: 'nextweek' },
+  ]
+
+  return (
+    <Modal transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={ds.backdrop} onPress={onClose} />
+      <View style={ds.sheet}>
+        <View style={ds.handle} />
+        <Text style={ds.title}>Set due date</Text>
+        <Text style={ds.subtitle} numberOfLines={1}>{task.title}</Text>
+
+        <View style={ds.optionList}>
+          {options.map(opt => {
+            const isActive = task.due_date && new Date(task.due_date).toDateString() === new Date(quickDateISO(opt.value)).toDateString()
+            return (
+              <Pressable
+                key={opt.value}
+                style={[ds.option, isActive && ds.optionActive]}
+                onPress={() => { onSelect(quickDateISO(opt.value)); onClose() }}
+                {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+              >
+                <Ionicons name={opt.icon} size={18} color={isActive ? tokens.colors.primary : tokens.colors.textSecondary} />
+                <Text style={[ds.optionText, isActive && ds.optionTextActive]}>{opt.label}</Text>
+                {isActive && <Ionicons name="checkmark" size={16} color={tokens.colors.primary} style={{ marginLeft: 'auto' }} />}
+              </Pressable>
+            )
+          })}
+        </View>
+
+        {task.due_date && (
+          <>
+            <View style={ds.divider} />
+            <Pressable
+              style={ds.clearBtn}
+              onPress={() => { onSelect(null); onClose() }}
+              {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+            >
+              <Ionicons name="close-circle-outline" size={18} color={tokens.colors.error} />
+              <Text style={ds.clearText}>Remove due date</Text>
+            </Pressable>
+          </>
+        )}
+      </View>
+    </Modal>
+  )
 }
 
 function SwipeableTaskRow({
@@ -164,9 +261,11 @@ export default function TasksScreen() {
     toggleTask,
     deleteTask,
     updateTaskTitle,
-    toggleDueDate,
+    setTaskDueDate,
   } = useAppData()
   const [showCompleted, setShowCompleted] = useState(false)
+  const [dueDateTaskId, setDueDateTaskId] = useState<string | null>(null)
+  const dueDateTask = tasks.find(t => t.id === dueDateTaskId) ?? null
 
   const activeTasks = tasks.filter(t => !t.completed)
   const completedTasks = tasks.filter(t => t.completed)
@@ -200,7 +299,7 @@ export default function TasksScreen() {
         </View>
 
         {loading ? (
-          <ActivityIndicator size="large" color={tokens.colors.primary} style={{ marginTop: 40 }} />
+          <TaskSkeleton />
         ) : tasks.length === 0 ? (
           <View style={s.emptyWrap}>
             <Ionicons name="checkmark-circle-outline" size={48} color={tokens.colors.border} />
@@ -221,7 +320,7 @@ export default function TasksScreen() {
                 onToggle={() => toggleTask(task)}
                 onDelete={() => deleteTask(task)}
                 onTitleSave={(t) => updateTaskTitle(task.id, t)}
-                onDueDatePress={() => toggleDueDate(task)}
+                onDueDatePress={() => setDueDateTaskId(task.id)}
               />
             ))}
 
@@ -249,7 +348,7 @@ export default function TasksScreen() {
                     onToggle={() => toggleTask(task)}
                     onDelete={() => deleteTask(task)}
                     onTitleSave={(t) => updateTaskTitle(task.id, t)}
-                    onDueDatePress={() => toggleDueDate(task)}
+                    onDueDatePress={() => setDueDateTaskId(task.id)}
                   />
                 ))}
               </>
@@ -257,6 +356,14 @@ export default function TasksScreen() {
           </>
         )}
       </ScrollView>
+
+      {dueDateTask && (
+        <DueDateSheet
+          task={dueDateTask}
+          onSelect={(iso) => setTaskDueDate(dueDateTask.id, iso)}
+          onClose={() => setDueDateTaskId(null)}
+        />
+      )}
     </View>
     </TabSlideWrapper>
   )
@@ -424,5 +531,111 @@ const s = StyleSheet.create({
     color: '#fff',
     fontWeight: tokens.fontWeight.bold,
     fontSize: tokens.fontSize.base,
+  },
+})
+
+// Skeleton styles
+const sk = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: tokens.colors.surface,
+    marginHorizontal: 16,
+    marginBottom: 6,
+    borderRadius: 12,
+    padding: 12,
+    gap: 10,
+    ...tokens.shadow.card,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: tokens.colors.border,
+  },
+  box: {
+    backgroundColor: tokens.colors.border,
+    borderRadius: tokens.radius.sm,
+  },
+})
+
+// DueDateSheet styles
+const ds = StyleSheet.create({
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  sheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: tokens.colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 8,
+    paddingBottom: 40,
+    paddingHorizontal: 16,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: tokens.colors.border,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: tokens.fontSize.lg,
+    fontWeight: tokens.fontWeight.bold,
+    color: tokens.colors.textPrimary,
+    marginBottom: 2,
+  },
+  subtitle: {
+    fontSize: tokens.fontSize.sm,
+    color: tokens.colors.textMuted,
+    marginBottom: 16,
+  },
+  optionList: {
+    gap: 4,
+  },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: tokens.colors.surfaceAlt,
+  },
+  optionActive: {
+    backgroundColor: tokens.colors.primaryBg,
+  },
+  optionText: {
+    fontSize: tokens.fontSize.base,
+    fontWeight: tokens.fontWeight.semibold,
+    color: tokens.colors.textPrimary,
+    flex: 1,
+  },
+  optionTextActive: {
+    color: tokens.colors.primary,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: tokens.colors.border,
+    marginVertical: 12,
+  },
+  clearBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    ...Platform.select({ web: { cursor: 'pointer' } as object, default: {} }),
+  },
+  clearText: {
+    fontSize: tokens.fontSize.base,
+    fontWeight: tokens.fontWeight.semibold,
+    color: tokens.colors.error,
   },
 })
