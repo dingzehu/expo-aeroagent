@@ -44,6 +44,7 @@ type AppDataContextValue = {
 
   tasks: Task[]
   tasksLoading: boolean
+  addTask: (title: string, dueDate: string | null) => Promise<void>
   toggleTask: (task: Task) => Promise<void>
   deleteTask: (task: Task) => Promise<void>
   updateTaskTitle: (taskId: string, newTitle: string) => Promise<void>
@@ -51,6 +52,7 @@ type AppDataContextValue = {
 
   shoppingItems: ShoppingItem[]
   shoppingLoading: boolean
+  addShoppingItem: (itemName: string, quantity: string | null) => Promise<void>
   toggleShoppingItem: (item: ShoppingItem) => Promise<void>
   deleteShoppingItem: (item: ShoppingItem) => Promise<void>
   updateQuantity: (itemId: string, qty: string) => Promise<void>
@@ -68,9 +70,9 @@ type AppDataContextValue = {
 const AppDataContext = createContext<AppDataContextValue>({
   isSignedIn: false,
   tasks: [], tasksLoading: false,
-  toggleTask: async () => {}, deleteTask: async () => {}, updateTaskTitle: async () => {}, setTaskDueDate: async () => {},
+  addTask: async () => {}, toggleTask: async () => {}, deleteTask: async () => {}, updateTaskTitle: async () => {}, setTaskDueDate: async () => {},
   shoppingItems: [], shoppingLoading: false,
-  toggleShoppingItem: async () => {}, deleteShoppingItem: async () => {}, updateQuantity: async () => {},
+  addShoppingItem: async () => {}, toggleShoppingItem: async () => {}, deleteShoppingItem: async () => {}, updateQuantity: async () => {},
   journalEntries: [], journalLoading: false,
   removeJournalEntry: () => {}, updateJournalEntryContent: () => {},
   invalidateTasks: async () => {}, invalidateShopping: async () => {}, invalidateJournal: async () => {},
@@ -189,6 +191,26 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Task mutations ─────────────────────────────────────────────────────────
 
+  const addTask = useCallback(async (title: string, dueDate: string | null) => {
+    if (!userId) return
+    const tempId = `temp-${Date.now()}`
+    const optimistic: Task = {
+      id: tempId, user_id: userId, title,
+      due_date: dueDate, completed: false, completed_at: null, capture_id: null,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }
+    setTasks(prev => [optimistic, ...prev])
+    const { data, error } = await supabase.from('tasks').insert({
+      user_id: userId, title, due_date: dueDate, capture_id: null,
+    }).select().single()
+    if (error) {
+      setTasks(prev => prev.filter(t => t.id !== tempId))
+      console.error('addTask:', error)
+    } else if (data) {
+      setTasks(prev => prev.map(t => t.id === tempId ? data : t))
+    }
+  }, [userId])
+
   const toggleTask = useCallback(async (task: Task) => {
     const newCompleted = !task.completed
     const completed_at = newCompleted ? new Date().toISOString() : null
@@ -222,6 +244,26 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   // ─── Shopping mutations ─────────────────────────────────────────────────────
+
+  const addShoppingItem = useCallback(async (itemName: string, quantity: string | null) => {
+    if (!userId) return
+    const tempId = `temp-${Date.now()}`
+    const optimistic: ShoppingItem = {
+      id: tempId, user_id: userId, item_name: itemName,
+      quantity: quantity || null, completed: false, completed_at: null,
+      capture_id: null, created_at: new Date().toISOString(),
+    }
+    setShoppingItems(prev => [optimistic, ...prev])
+    const { data, error } = await supabase.from('shopping_items').insert({
+      user_id: userId, item_name: itemName, quantity: quantity || null, capture_id: null,
+    }).select().single()
+    if (error) {
+      setShoppingItems(prev => prev.filter(i => i.id !== tempId))
+      console.error('addShoppingItem:', error)
+    } else if (data) {
+      setShoppingItems(prev => prev.map(i => i.id === tempId ? data : i))
+    }
+  }, [userId])
 
   const toggleShoppingItem = useCallback(async (item: ShoppingItem) => {
     const newCompleted = !item.completed
@@ -278,8 +320,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppDataContext.Provider value={{
       isSignedIn: userId !== null,
-      tasks, tasksLoading, toggleTask, deleteTask, updateTaskTitle, setTaskDueDate,
-      shoppingItems, shoppingLoading, toggleShoppingItem, deleteShoppingItem, updateQuantity,
+      tasks, tasksLoading, addTask, toggleTask, deleteTask, updateTaskTitle, setTaskDueDate,
+      shoppingItems, shoppingLoading, addShoppingItem, toggleShoppingItem, deleteShoppingItem, updateQuantity,
       journalEntries, journalLoading, removeJournalEntry, updateJournalEntryContent,
       invalidateTasks, invalidateShopping, invalidateJournal,
     }}>

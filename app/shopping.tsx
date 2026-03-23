@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, useRouter } from 'expo-router'
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
-  ActivityIndicator,
   Animated,
+  KeyboardAvoidingView,
+  Modal,
   PanResponder,
   Platform,
   Pressable,
@@ -16,6 +17,123 @@ import {
 import { tokens } from '../constants/tokens'
 import { TabSlideWrapper } from '../components/TabSlideWrapper'
 import { useAppData, type ShoppingItem } from '../context/AppDataContext'
+
+function ShoppingSkeleton() {
+  const pulseAnim = useRef(new Animated.Value(0.5)).current
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1,   duration: 700, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+      ])
+    )
+    anim.start()
+    return () => anim.stop()
+  }, [])
+  return (
+    <Animated.View style={{ opacity: pulseAnim, paddingTop: 8 }}>
+      {[0, 1, 2, 3].map(i => (
+        <View key={i} style={[sk.row]}>
+          <View style={sk.checkbox} />
+          <View style={{ flex: 1 }}>
+            <View style={[sk.box, { height: 14, width: i % 2 === 0 ? '70%' : '55%' }]} />
+          </View>
+          <View style={[sk.box, { width: 36, height: 22, borderRadius: 6 }]} />
+        </View>
+      ))}
+    </Animated.View>
+  )
+}
+
+function AddItemSheet({
+  onAdd,
+  onClose,
+}: {
+  onAdd: (itemName: string, quantity: string | null) => void
+  onClose: () => void
+}) {
+  const [itemName, setItemName] = useState('')
+  const [quantity, setQuantity] = useState('')
+  const slideY = useRef(new Animated.Value(400)).current
+  const backdropOpacity = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.spring(slideY, { toValue: 0, damping: 28, stiffness: 280, useNativeDriver: true }),
+    ]).start()
+  }, [])
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+      Animated.timing(slideY, { toValue: 400, duration: 220, useNativeDriver: true }),
+    ]).start(() => onClose())
+  }
+
+  const handleAdd = () => {
+    const trimmed = itemName.trim()
+    if (!trimmed) return
+    onAdd(trimmed, quantity.trim() || null)
+    handleClose()
+  }
+
+  return (
+    <Modal transparent animationType="none" onRequestClose={handleClose}>
+      <View style={{ flex: 1 }}>
+        {/* Visual scrim — no pointer events */}
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.15)', opacity: backdropOpacity }]}
+        />
+
+        {/* Layout + dismiss */}
+        <KeyboardAvoidingView
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          pointerEvents="box-none"
+        >
+          <Pressable style={{ flex: 1 }} onPress={handleClose} />
+
+          <Animated.View style={[ai.sheet, { transform: [{ translateY: slideY }] }]}>
+            <View style={ai.handle} />
+            <Text style={ai.title}>Add Item</Text>
+
+            <TextInput
+              style={ai.input}
+              value={itemName}
+              onChangeText={setItemName}
+              placeholder="What do you need?"
+              placeholderTextColor={tokens.colors.textMuted}
+              autoFocus
+              returnKeyType="next"
+              onSubmitEditing={handleAdd}
+            />
+
+            <TextInput
+              style={[ai.input, ai.inputQty]}
+              value={quantity}
+              onChangeText={setQuantity}
+              placeholder="Quantity (optional) — e.g. 2 boxes"
+              placeholderTextColor={tokens.colors.textMuted}
+              returnKeyType="done"
+              onSubmitEditing={handleAdd}
+            />
+
+            <Pressable
+              style={[ai.addBtn, !itemName.trim() && ai.addBtnDisabled]}
+              onPress={handleAdd}
+              disabled={!itemName.trim()}
+              {...Platform.select({ web: { cursor: itemName.trim() ? 'pointer' : 'default' } as object, default: {} })}
+            >
+              <Text style={ai.addBtnText}>Add to List</Text>
+            </Pressable>
+          </Animated.View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
+  )
+}
 
 function SwipeableShoppingRow({
   item,
@@ -116,11 +234,13 @@ export default function ShoppingScreen() {
     isSignedIn,
     shoppingItems: items,
     shoppingLoading: loading,
+    addShoppingItem,
     toggleShoppingItem: toggleItem,
     deleteShoppingItem: deleteItem,
     updateQuantity,
   } = useAppData()
   const [showBought, setShowBought] = useState(false)
+  const [addItemVisible, setAddItemVisible] = useState(false)
 
   const activeItems = items.filter(i => !i.completed)
   const boughtItems = items.filter(i => i.completed)
@@ -153,12 +273,12 @@ export default function ShoppingScreen() {
         </View>
 
         {loading ? (
-          <ActivityIndicator size="large" color={tokens.colors.warning} style={{ marginTop: 40 }} />
+          <ShoppingSkeleton />
         ) : items.length === 0 ? (
           <View style={s.emptyWrap}>
             <Ionicons name="cart-outline" size={48} color={tokens.colors.border} />
             <Text style={s.emptyTitle}>Shopping list empty</Text>
-            <Text style={s.emptySubtitle}>Capture items to add them here</Text>
+            <Text style={s.emptySubtitle}>Tap + to add one, or capture by voice</Text>
             <Pressable style={s.emptyButton} onPress={() => router.replace('/')}>
               <Ionicons name="flash" size={16} color="#fff" />
               <Text style={s.emptyButtonText}>Go to Capture</Text>
@@ -206,6 +326,21 @@ export default function ShoppingScreen() {
           </>
         )}
       </ScrollView>
+
+      <Pressable
+        style={s.fab}
+        onPress={() => setAddItemVisible(true)}
+        {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+      >
+        <Ionicons name="add" size={28} color="#fff" />
+      </Pressable>
+
+      {addItemVisible && (
+        <AddItemSheet
+          onAdd={(name, qty) => addShoppingItem(name, qty)}
+          onClose={() => setAddItemVisible(false)}
+        />
+      )}
     </View>
     </TabSlideWrapper>
   )
@@ -214,7 +349,7 @@ export default function ShoppingScreen() {
 const rowStyles = StyleSheet.create({
   wrapper: {
     position: 'relative',
-    marginHorizontal: 12,
+    marginHorizontal: 16,
     marginBottom: 6,
     borderRadius: 12,
     overflow: 'hidden',
@@ -371,5 +506,96 @@ const s = StyleSheet.create({
     color: '#fff',
     fontWeight: tokens.fontWeight.bold,
     fontSize: tokens.fontSize.base,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: tokens.colors.warning,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...tokens.shadow.popover,
+  },
+})
+
+// AddItemSheet styles
+const ai = StyleSheet.create({
+  sheet: {
+    backgroundColor: tokens.colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 8,
+    paddingBottom: 40,
+    paddingHorizontal: 16,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: tokens.colors.border,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: tokens.fontSize.lg,
+    fontWeight: tokens.fontWeight.bold,
+    color: tokens.colors.textPrimary,
+    marginBottom: 16,
+  },
+  input: {
+    backgroundColor: tokens.colors.surfaceAlt,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: tokens.fontSize.base,
+    color: tokens.colors.textPrimary,
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: tokens.colors.border,
+  },
+  inputQty: {
+    marginBottom: 20,
+  },
+  addBtn: {
+    backgroundColor: tokens.colors.warning,
+    borderRadius: tokens.radius.lg,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  addBtnDisabled: {
+    opacity: 0.4,
+  },
+  addBtnText: {
+    color: '#fff',
+    fontWeight: tokens.fontWeight.bold,
+    fontSize: tokens.fontSize.base,
+  },
+})
+
+// Skeleton styles
+const sk = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: tokens.colors.surface,
+    marginHorizontal: 16,
+    marginBottom: 6,
+    borderRadius: 12,
+    padding: 12,
+    gap: 10,
+    ...tokens.shadow.card,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: tokens.colors.border,
+  },
+  box: {
+    backgroundColor: tokens.colors.border,
+    borderRadius: tokens.radius.sm,
   },
 })

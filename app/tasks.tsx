@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Stack, useRouter } from 'expo-router'
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Animated,
+  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -92,6 +93,23 @@ function DueDateSheet({
   onSelect: (iso: string | null) => void
   onClose: () => void
 }) {
+  const slideY = useRef(new Animated.Value(400)).current
+  const backdropOpacity = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.spring(slideY, { toValue: 0, damping: 28, stiffness: 280, useNativeDriver: true }),
+    ]).start()
+  }, [])
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+      Animated.timing(slideY, { toValue: 400, duration: 220, useNativeDriver: true }),
+    ]).start(() => onClose())
+  }
+
   const options: { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; value: 'today' | 'tomorrow' | 'in3days' | 'nextweek' }[] = [
     { label: 'Today',     icon: 'sunny-outline',    value: 'today' },
     { label: 'Tomorrow',  icon: 'arrow-forward-circle-outline', value: 'tomorrow' },
@@ -100,44 +118,160 @@ function DueDateSheet({
   ]
 
   return (
-    <Modal transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={ds.backdrop} onPress={onClose} />
-      <View style={ds.sheet}>
-        <View style={ds.handle} />
-        <Text style={ds.title}>Set due date</Text>
-        <Text style={ds.subtitle} numberOfLines={1}>{task.title}</Text>
+    <Modal transparent animationType="none" onRequestClose={handleClose}>
+      <View style={{ flex: 1 }}>
+        <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: backdropOpacity }]}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={handleClose}>
+            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.15)' }]} />
+          </Pressable>
+        </Animated.View>
 
-        <View style={ds.optionList}>
-          {options.map(opt => {
-            const isActive = task.due_date && new Date(task.due_date).toDateString() === new Date(quickDateISO(opt.value)).toDateString()
-            return (
-              <Pressable
-                key={opt.value}
-                style={[ds.option, isActive && ds.optionActive]}
-                onPress={() => { onSelect(quickDateISO(opt.value)); onClose() }}
-                {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
-              >
-                <Ionicons name={opt.icon} size={18} color={isActive ? tokens.colors.primary : tokens.colors.textSecondary} />
-                <Text style={[ds.optionText, isActive && ds.optionTextActive]}>{opt.label}</Text>
-                {isActive && <Ionicons name="checkmark" size={16} color={tokens.colors.primary} style={{ marginLeft: 'auto' }} />}
-              </Pressable>
-            )
-          })}
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <Animated.View style={[ds.sheet, { transform: [{ translateY: slideY }] }]}>
+            <View style={ds.handle} />
+            <Text style={ds.title}>Set due date</Text>
+            <Text style={ds.subtitle} numberOfLines={1}>{task.title}</Text>
+
+            <View style={ds.optionList}>
+              {options.map(opt => {
+                const isActive = task.due_date && new Date(task.due_date).toDateString() === new Date(quickDateISO(opt.value)).toDateString()
+                return (
+                  <Pressable
+                    key={opt.value}
+                    style={[ds.option, isActive && ds.optionActive]}
+                    onPress={() => { onSelect(quickDateISO(opt.value)); handleClose() }}
+                    {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+                  >
+                    <Ionicons name={opt.icon} size={18} color={isActive ? tokens.colors.primary : tokens.colors.textSecondary} />
+                    <Text style={[ds.optionText, isActive && ds.optionTextActive]}>{opt.label}</Text>
+                    {isActive && <Ionicons name="checkmark" size={16} color={tokens.colors.primary} style={{ marginLeft: 'auto' }} />}
+                  </Pressable>
+                )
+              })}
+            </View>
+
+            {task.due_date && (
+              <>
+                <View style={ds.divider} />
+                <Pressable
+                  style={ds.clearBtn}
+                  onPress={() => { onSelect(null); handleClose() }}
+                  {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+                >
+                  <Ionicons name="close-circle-outline" size={18} color={tokens.colors.error} />
+                  <Text style={ds.clearText}>Remove due date</Text>
+                </Pressable>
+              </>
+            )}
+          </Animated.View>
         </View>
+      </View>
+    </Modal>
+  )
+}
 
-        {task.due_date && (
-          <>
-            <View style={ds.divider} />
+function AddTaskSheet({
+  onAdd,
+  onClose,
+}: {
+  onAdd: (title: string, dueDate: string | null) => void
+  onClose: () => void
+}) {
+  const [title, setTitle] = useState('')
+  const [selectedDue, setSelectedDue] = useState<string | null>(null)
+  const slideY = useRef(new Animated.Value(400)).current
+  const backdropOpacity = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.spring(slideY, { toValue: 0, damping: 28, stiffness: 280, useNativeDriver: true }),
+    ]).start()
+  }, [])
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+      Animated.timing(slideY, { toValue: 400, duration: 220, useNativeDriver: true }),
+    ]).start(() => onClose())
+  }
+
+  const handleAdd = () => {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    onAdd(trimmed, selectedDue)
+    handleClose()
+  }
+
+  const datePills: { label: string; value: 'today' | 'tomorrow' | 'in3days' | 'nextweek' }[] = [
+    { label: 'Today',     value: 'today' },
+    { label: 'Tomorrow',  value: 'tomorrow' },
+    { label: '3 days',    value: 'in3days' },
+    { label: 'Next week', value: 'nextweek' },
+  ]
+
+  return (
+    <Modal transparent animationType="none" onRequestClose={handleClose}>
+      <View style={{ flex: 1 }}>
+        {/* Visual scrim only — no pointer events */}
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.15)', opacity: backdropOpacity }]}
+        />
+
+        {/* Layout + dismiss: KAV is box-none so it doesn't block backdrop taps */}
+        <KeyboardAvoidingView
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          pointerEvents="box-none"
+        >
+          {/* Dismiss area — fills space above the sheet */}
+          <Pressable style={{ flex: 1 }} onPress={handleClose} />
+
+          <Animated.View style={[as.sheet, { transform: [{ translateY: slideY }] }]}>
+            <View style={as.handle} />
+            <Text style={as.title}>New Task</Text>
+
+            <TextInput
+              style={as.input}
+              value={title}
+              onChangeText={setTitle}
+              placeholder="What needs to be done?"
+              placeholderTextColor={tokens.colors.textMuted}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={handleAdd}
+            />
+
+            <Text style={as.sectionLabel}>Due date</Text>
+            <View style={as.pillRow}>
+              {datePills.map(pill => {
+                const iso = quickDateISO(pill.value)
+                const isActive = selectedDue !== null &&
+                  new Date(selectedDue).toDateString() === new Date(iso).toDateString()
+                return (
+                  <Pressable
+                    key={pill.value}
+                    style={[as.pill, isActive && as.pillActive]}
+                    onPress={() => setSelectedDue(isActive ? null : iso)}
+                    {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+                  >
+                    <Text style={[as.pillText, isActive && as.pillTextActive]}>{pill.label}</Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+
             <Pressable
-              style={ds.clearBtn}
-              onPress={() => { onSelect(null); onClose() }}
-              {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+              style={[as.addBtn, !title.trim() && as.addBtnDisabled]}
+              onPress={handleAdd}
+              disabled={!title.trim()}
+              {...Platform.select({ web: { cursor: title.trim() ? 'pointer' : 'default' } as object, default: {} })}
             >
-              <Ionicons name="close-circle-outline" size={18} color={tokens.colors.error} />
-              <Text style={ds.clearText}>Remove due date</Text>
+              <Text style={as.addBtnText}>Add Task</Text>
             </Pressable>
-          </>
-        )}
+          </Animated.View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   )
@@ -258,6 +392,7 @@ export default function TasksScreen() {
     isSignedIn,
     tasks,
     tasksLoading: loading,
+    addTask,
     toggleTask,
     deleteTask,
     updateTaskTitle,
@@ -265,6 +400,7 @@ export default function TasksScreen() {
   } = useAppData()
   const [showCompleted, setShowCompleted] = useState(false)
   const [dueDateTaskId, setDueDateTaskId] = useState<string | null>(null)
+  const [addTaskVisible, setAddTaskVisible] = useState(false)
   const dueDateTask = tasks.find(t => t.id === dueDateTaskId) ?? null
 
   const activeTasks = tasks.filter(t => !t.completed)
@@ -304,7 +440,7 @@ export default function TasksScreen() {
           <View style={s.emptyWrap}>
             <Ionicons name="checkmark-circle-outline" size={48} color={tokens.colors.border} />
             <Text style={s.emptyTitle}>No tasks yet</Text>
-            <Text style={s.emptySubtitle}>Capture something to get started</Text>
+            <Text style={s.emptySubtitle}>Tap + to add one, or capture by voice</Text>
             <Pressable style={s.emptyButton} onPress={() => router.replace('/')}>
               <Ionicons name="flash" size={16} color="#fff" />
               <Text style={s.emptyButtonText}>Go to Capture</Text>
@@ -364,6 +500,21 @@ export default function TasksScreen() {
           onClose={() => setDueDateTaskId(null)}
         />
       )}
+
+      <Pressable
+        style={s.fab}
+        onPress={() => setAddTaskVisible(true)}
+        {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+      >
+        <Ionicons name="add" size={28} color="#fff" />
+      </Pressable>
+
+      {addTaskVisible && (
+        <AddTaskSheet
+          onAdd={(title, dueDate) => addTask(title, dueDate)}
+          onClose={() => setAddTaskVisible(false)}
+        />
+      )}
     </View>
     </TabSlideWrapper>
   )
@@ -372,7 +523,7 @@ export default function TasksScreen() {
 const rowStyles = StyleSheet.create({
   wrapper: {
     position: 'relative',
-    marginHorizontal: 12,
+    marginHorizontal: 16,
     marginBottom: 6,
     borderRadius: 12,
     overflow: 'hidden',
@@ -532,6 +683,18 @@ const s = StyleSheet.create({
     fontWeight: tokens.fontWeight.bold,
     fontSize: tokens.fontSize.base,
   },
+  fab: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: tokens.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...tokens.shadow.popover,
+  },
 })
 
 // Skeleton styles
@@ -559,12 +722,93 @@ const sk = StyleSheet.create({
   },
 })
 
+// AddTaskSheet styles
+const as = StyleSheet.create({
+  sheet: {
+    backgroundColor: tokens.colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 8,
+    paddingBottom: 40,
+    paddingHorizontal: 16,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: tokens.colors.border,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: tokens.fontSize.lg,
+    fontWeight: tokens.fontWeight.bold,
+    color: tokens.colors.textPrimary,
+    marginBottom: 16,
+  },
+  input: {
+    backgroundColor: tokens.colors.surfaceAlt,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: tokens.fontSize.base,
+    color: tokens.colors.textPrimary,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: tokens.colors.border,
+  },
+  sectionLabel: {
+    fontSize: tokens.fontSize.xs,
+    fontWeight: tokens.fontWeight.semibold,
+    color: tokens.colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  pillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 20,
+  },
+  pill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: tokens.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+  },
+  pillActive: {
+    backgroundColor: tokens.colors.primaryBg,
+    borderColor: tokens.colors.primary,
+  },
+  pillText: {
+    fontSize: tokens.fontSize.sm,
+    fontWeight: tokens.fontWeight.semibold,
+    color: tokens.colors.textSecondary,
+  },
+  pillTextActive: {
+    color: tokens.colors.primary,
+  },
+  addBtn: {
+    backgroundColor: tokens.colors.primary,
+    borderRadius: tokens.radius.lg,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  addBtnDisabled: {
+    opacity: 0.4,
+  },
+  addBtnText: {
+    color: '#fff',
+    fontWeight: tokens.fontWeight.bold,
+    fontSize: tokens.fontSize.base,
+  },
+})
+
 // DueDateSheet styles
 const ds = StyleSheet.create({
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
   sheet: {
     position: 'absolute',
     bottom: 0,
