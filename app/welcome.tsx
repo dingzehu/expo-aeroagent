@@ -1,10 +1,10 @@
-import { Ionicons } from '@expo/vector-icons'
-import { useRouter } from 'expo-router'
-import React, { useEffect } from 'react'
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { supabase } from '../lib/supabase'
 import { tokens } from '../constants/tokens'
+import { supabase } from '../lib/supabase'
+import { LinearGradient } from 'expo-linear-gradient'
+import { useRouter } from 'expo-router'
+import { useEffect } from 'react'
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 export default function WelcomeScreen() {
   const router = useRouter()
@@ -18,95 +18,237 @@ export default function WelcomeScreen() {
   }, [])
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom + 32 }]}>
-      <View style={styles.hero}>
-        <View style={styles.iconWrap}>
-          <Ionicons name="flash" size={52} color={tokens.colors.primary} />
-        </View>
+    <View style={styles.root}>
+      {/* ── Gradient header ── */}
+      <LinearGradient
+        colors={[tokens.colors.primaryDark, tokens.colors.primaryLight]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.header, { paddingTop: insets.top + 28 }]}
+      >
+        <Text style={styles.lightning}>⚡</Text>
         <Text style={styles.appName}>AeroAgent</Text>
-        <Text style={styles.tagline}>Capture thoughts, tasks & ideas — instantly.</Text>
-      </View>
+      </LinearGradient>
 
-      <View style={styles.actions}>
-        <Pressable
-          style={styles.primaryBtn}
-          onPress={() => router.push('/auth/sign-in')}
-          {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
-        >
-          <Text style={styles.primaryBtnText}>Sign In</Text>
-        </Pressable>
-        <Pressable
-          style={styles.secondaryBtn}
-          onPress={() => router.push('/auth/sign-up')}
-          {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
-        >
-          <Text style={styles.secondaryBtnText}>Create Account</Text>
-        </Pressable>
+      {/* ── Scrollable body ── */}
+      <ScrollView
+        contentContainerStyle={[
+          styles.body,
+          { paddingBottom: insets.bottom + 32 },
+        ]}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
+        {/* Example capture cards */}
+        <View style={styles.cardsSection}>
+          <CaptureCard
+            text="buy oat milk and bread"
+            badge="🛒  Shopping"
+            badgeBg="#FFF7ED"
+            badgeColor={tokens.colors.warning}
+            detail="2 items"
+          />
+          <CaptureCard
+            text="call dentist tomorrow 9am"
+            badge="✓  Task"
+            badgeBg={tokens.colors.primaryBg}
+            badgeColor={tokens.colors.primary}
+            detail="Tomorrow"
+          />
+          <CaptureCard
+            text="feeling really grateful today"
+            badge="📔  Journal"
+            badgeBg="#ECFDF5"
+            badgeColor={tokens.colors.success}
+            detail="Mood: grateful"
+          />
+        </View>
+
+        {/* Headline */}
+        <View style={styles.headline}>
+          <Text style={styles.headlineText}>
+            Capture anything.{'\n'}AI organises it.
+          </Text>
+          <Text style={styles.subtext}>
+            Voice or text. Always sorted. Always instant.
+          </Text>
+        </View>
+
+        {/* CTAs */}
+        <View style={styles.actions}>
+          <Pressable
+            style={styles.primaryBtn}
+            onPress={() => router.push('/auth/sign-up')}
+            {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+          >
+            <Text style={styles.primaryBtnText}>Create Account</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push('/auth/sign-in')}
+            style={styles.signInLink}
+            {...Platform.select({ web: { cursor: 'pointer' } as object, default: {} })}
+          >
+            <Text style={styles.signInLinkText}>Sign In</Text>
+          </Pressable>
+
+          <Text style={styles.finePrint}>Free to start · No credit card required</Text>
+        </View>
+      </ScrollView>
+    </View>
+  )
+}
+
+// ─── Example capture card ────────────────────────────────────────────────────
+
+function CaptureCard({
+  text,
+  badge,
+  badgeBg,
+  badgeColor,
+  detail,
+}: {
+  text: string
+  badge: string
+  badgeBg: string
+  badgeColor: string
+  detail: string
+}) {
+  return (
+    <View style={card.root}>
+      <Text style={card.text}>"{text}"</Text>
+      <View style={card.footer}>
+        <View style={[card.badge, { backgroundColor: badgeBg }]}>
+          <Text style={[card.badgeText, { color: badgeColor }]}>{badge}</Text>
+        </View>
+        <Text style={card.detail}>{detail}</Text>
       </View>
     </View>
   )
 }
 
+// ─── Styles ──────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
     backgroundColor: tokens.colors.surface,
-    justifyContent: 'space-between',
-    paddingHorizontal: 28,
   },
-  hero: {
-    flex: 1,
+  header: {
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
+    paddingBottom: 32,
+    gap: 4,
   },
-  iconWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: tokens.radius.xxl,
-    backgroundColor: tokens.colors.primaryBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
+  lightning: {
+    fontSize: 36,
   },
   appName: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: tokens.fontWeight.black,
-    color: tokens.colors.textPrimary,
+    color: '#fff',
     letterSpacing: -0.5,
   },
-  tagline: {
-    fontSize: tokens.fontSize.lg,
-    color: tokens.colors.textTertiary,
+  body: {
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    gap: 0,
+  },
+  cardsSection: {
+    gap: 10,
+    marginBottom: 32,
+  },
+  headline: {
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 36,
+  },
+  headlineText: {
+    fontSize: 28,
+    fontWeight: tokens.fontWeight.black,
+    color: tokens.colors.textPrimary,
     textAlign: 'center',
-    lineHeight: 22,
-    paddingHorizontal: 8,
+    lineHeight: 34,
+    letterSpacing: -0.5,
+  },
+  subtext: {
+    fontSize: tokens.fontSize.base,
+    color: tokens.colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   actions: {
-    gap: 12,
+    gap: 14,
+    alignItems: 'center',
   },
   primaryBtn: {
     backgroundColor: tokens.colors.primary,
     borderRadius: tokens.radius.xl,
     paddingVertical: 16,
     alignItems: 'center',
+    alignSelf: 'stretch',
+    ...Platform.select({
+      ios:     { shadowColor: tokens.colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+      android: { elevation: 4 },
+      web:     { boxShadow: `0 4px 12px ${tokens.colors.primary}40` } as object,
+      default: {},
+    }),
   },
   primaryBtnText: {
     color: '#fff',
     fontSize: tokens.fontSize.xl,
     fontWeight: tokens.fontWeight.bold,
   },
-  secondaryBtn: {
-    borderWidth: 1.5,
-    borderColor: tokens.colors.primary,
-    borderRadius: tokens.radius.xl,
-    paddingVertical: 16,
-    alignItems: 'center',
-    backgroundColor: tokens.colors.surface,
+  signInLink: {
+    paddingVertical: 8,
   },
-  secondaryBtnText: {
+  signInLinkText: {
     color: tokens.colors.primary,
-    fontSize: tokens.fontSize.xl,
-    fontWeight: tokens.fontWeight.bold,
+    fontSize: tokens.fontSize.lg,
+    fontWeight: tokens.fontWeight.semibold,
+  },
+  finePrint: {
+    fontSize: tokens.fontSize.sm,
+    color: tokens.colors.textMuted,
+    marginTop: 4,
+  },
+})
+
+const card = StyleSheet.create({
+  root: {
+    backgroundColor: tokens.colors.surface,
+    borderRadius: tokens.radius.card,
+    padding: 14,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: tokens.colors.border,
+    ...Platform.select({
+      ios:     { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4 },
+      android: { elevation: 1 },
+      web:     { boxShadow: '0 1px 6px rgba(0,0,0,0.06)' } as object,
+      default: {},
+    }),
+  },
+  text: {
+    fontSize: tokens.fontSize.base,
+    color: tokens.colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  badge: {
+    borderRadius: tokens.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  badgeText: {
+    fontSize: tokens.fontSize.sm,
+    fontWeight: tokens.fontWeight.semibold,
+  },
+  detail: {
+    fontSize: tokens.fontSize.sm,
+    color: tokens.colors.textMuted,
   },
 })

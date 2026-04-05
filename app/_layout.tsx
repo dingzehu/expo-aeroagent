@@ -211,8 +211,8 @@ function RootLayoutInner() {
         <Stack.Screen name="auth/sign-up" options={{ headerShown: false }} />
         <Stack.Screen name="notes" options={{ headerTitle: 'Studio', headerBackVisible: false }} />
         <Stack.Screen name="thoughts" options={{ headerShown: false, animation: 'none' }} />
-        <Stack.Screen name="taskManager" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
         <Stack.Screen name="profile" options={{ headerTitle: 'Edit Profile', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="weeklyInsight" options={{ headerShown: false, animation: 'slide_from_bottom', gestureDirection: 'vertical' }} />
       </Stack>
 
       {/* Account popover */}
